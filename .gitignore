@@ -7,3 +7,5 @@ dist/
 bun.lock
 .youtube_ghosts.json
 data/
+custom/
+*.png

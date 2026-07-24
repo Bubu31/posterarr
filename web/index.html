@@ -51,7 +51,12 @@
       <button class="close" onclick="closeDetail()">Fermer</button>
       <h2 id="d-name"></h2>
       <div class="sub" id="d-sub"></div>
+      <div id="d-identify" style="margin-top:.6rem"></div>
       <div id="d-lock" style="margin-top:.6rem"></div>
+      <div id="dropzone" style="margin-top:.8rem;border:1px dashed #2a2d36;border-radius:8px;padding:.7rem;text-align:center;color:var(--muted);cursor:pointer;font-size:.85rem">
+        📤 Glisse une image ici ou clique pour un poster custom
+        <input type="file" id="file-input" accept="image/*" style="display:none" />
+      </div>
       <div class="cand-grid" id="cand-grid"></div>
     </div>
   </div>
@@ -124,6 +129,7 @@
       document.getElementById("d-name").textContent = d.item.name;
       document.getElementById("d-sub").textContent =
         `${d.count} candidats · sources : ${d.sources.join(", ") || "aucune"} · tmdb ${d.item.tmdbId ?? "—"}`;
+      renderIdentify(d.item);
       renderLock();
       const g = document.getElementById("cand-grid");
       g.innerHTML = "";
@@ -193,6 +199,82 @@
         if (d.healed.length) load();
       } finally { btn.textContent = old; btn.disabled = false; }
     }
+
+    // Devine titre + année depuis un nom de fichier pourri (pour préremplir la recherche).
+    function guessTitleYear(name) {
+      const ym = name.match(/\b(19|20)\d{2}\b/);
+      const year = ym ? ym[0] : "";
+      let title = ym ? name.slice(0, ym.index) : name;
+      title = title.replace(/[[(].*$/, "").replace(/[._]/g, " ").trim();
+      return { title, year };
+    }
+
+    function renderIdentify(item) {
+      const el = document.getElementById("d-identify");
+      if (item.tmdbId) { el.innerHTML = ""; return; } // déjà identifié
+      const g = guessTitleYear(item.name);
+      el.innerHTML = `
+        <div style="background:#3a2a1a;border:1px solid #5f4420;border-radius:8px;padding:.7rem">
+          <strong>⚠️ Non identifié</strong> — pas de TMDB id, aucun candidat possible. Cherche le bon film/série :
+          <div style="display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
+            <input id="tmdb-q" value="${g.title.replace(/"/g, "&quot;")}" placeholder="Titre" style="flex:1;min-width:160px;background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.4rem .6rem;border-radius:6px" />
+            <input id="tmdb-y" value="${g.year}" placeholder="Année" style="width:80px;background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.4rem .6rem;border-radius:6px" />
+            <button class="close" style="float:none" onclick="searchTmdb('${item.type}')">Chercher</button>
+          </div>
+          <div id="tmdb-results" class="cand-grid" style="margin-top:.6rem"></div>
+        </div>`;
+    }
+
+    async function searchTmdb(type) {
+      const q = document.getElementById("tmdb-q").value;
+      const y = document.getElementById("tmdb-y").value;
+      const box = document.getElementById("tmdb-results");
+      box.innerHTML = '<span class="sub">Recherche…</span>';
+      const r = await fetch(`/api/tmdb/search?type=${type}&query=${encodeURIComponent(q)}&year=${encodeURIComponent(y)}`);
+      const d = await r.json();
+      box.innerHTML = "";
+      if (!d.results.length) { box.innerHTML = '<span class="sub">Aucun résultat.</span>'; return; }
+      for (const m of d.results) {
+        const el = document.createElement("div");
+        el.className = "cand"; el.style.cursor = "pointer";
+        el.title = `Associer : ${m.title} (${m.year ?? "?"}) — tmdb ${m.tmdbId}`;
+        el.innerHTML = `${m.posterUrl ? `<img loading="lazy" src="${m.posterUrl}" />` : '<div class="poster">?</div>'}
+          <div class="meta"><div class="name">${m.title}</div><div class="sub">${m.year ?? ""}</div></div>`;
+        el.onclick = () => setTmdb(m);
+        box.appendChild(el);
+      }
+    }
+
+    async function setTmdb(m) {
+      document.getElementById("d-identify").innerHTML = '<span class="sub">Association + refresh Jellyfin…</span>';
+      const r = await fetch(`/api/items/${current.id}/set-tmdb`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tmdbId: m.tmdbId }),
+      });
+      const d = await r.json();
+      if (d.ok) { setTimeout(() => { openDetail(current.id); load(); }, 1500); }
+      else alert("Échec : " + (d.error || "inconnu"));
+    }
+
+    async function uploadCustom(file) {
+      if (!file || !current) return;
+      const fd = new FormData();
+      fd.append("file", file);
+      document.getElementById("d-lock").innerHTML = '<span class="sub">Upload custom…</span>';
+      const r = await fetch(`/api/items/${current.id}/apply-file`, { method: "POST", body: fd });
+      const d = await r.json();
+      if (d.ok) { current.managed = d.managed; openDetail(current.id); load(); }
+      else alert("Échec upload : " + (d.error || "inconnu"));
+    }
+    (function wireDropzone() {
+      const dz = document.getElementById("dropzone");
+      const inp = document.getElementById("file-input");
+      dz.onclick = () => inp.click();
+      inp.onchange = () => uploadCustom(inp.files[0]);
+      dz.ondragover = (e) => { e.preventDefault(); dz.style.borderColor = "var(--accent)"; };
+      dz.ondragleave = () => { dz.style.borderColor = "#2a2d36"; };
+      dz.ondrop = (e) => { e.preventDefault(); dz.style.borderColor = "#2a2d36"; uploadCustom(e.dataTransfer.files[0]); };
+    })();
 
     function closeDetail() { document.getElementById("overlay").classList.remove("open"); }
     document.getElementById("overlay").onclick = (e) => { if (e.target.id === "overlay") closeDetail(); };

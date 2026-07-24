@@ -35,7 +35,10 @@ bun dev                # http://localhost:3939
 | `GET /api/library` | Liste films / séries / collections avec l'état du poster actuel. |
 | `GET /api/items/:id/candidates` | Posters candidats (toutes sources) + état géré/verrouillé de l'item. |
 | `POST /api/items/:id/apply` | Applique un poster (`{url, source, imageType?, lock?}`) → push API Jellyfin + enregistre. Locke par défaut. |
+| `POST /api/items/:id/apply-file` | Upload d'un poster custom (multipart `file`) → stocké localement, poussé à Jellyfin, locké, guérissable. |
 | `POST /api/items/:id/lock` | Verrouille / déverrouille (`{locked, imageType?}`) sans changer le poster. |
+| `GET /api/tmdb/search` | Recherche TMDB (`?type=&query=&year=`) pour identifier un item non matché par Jellyfin. |
+| `POST /api/items/:id/set-tmdb` | Associe un TMDB id (`{tmdbId}`) → l'écrit dans Jellyfin + refresh métadonnées (corrige le titre). |
 | `POST /api/heal` | Passe de guérison : ré-applique les posters verrouillés disparus ou remplacés. |
 | `GET /` | Front : grille + vue détail (candidats, appliquer, verrouiller). |
 
@@ -46,7 +49,8 @@ bun dev                # http://localhost:3939
 - [x] **Étape 3** — DB SQLite (`managed_image` + `history`, clé `provider_key` type `tmdb:149`), application d'un poster via API Jellyfin (→ écrit folder.jpg, vérifié sur le NAS), verrouillage par item. Vue détail : appliquer / verrouiller.
 - [x] **Étape 4** — **passe de guérison** (`/api/heal` + planificateur `HEAL_INTERVAL_MIN`) : détecte poster disparu (tag absent) ou remplacé (tag ≠ tag stocké) et ré-applique depuis `source_url`. Idempotent. Validé en simulant la perte de poster d'un item verrouillé → restauré. Pas de mode auto sur les nouveaux médias (Jellyfin s'en charge — décision assumée).
 - [x] **Étape 5a** — bouton « Guérir » dans l'UI (déclenche `/api/heal`, affiche le rapport).
-- [ ] **Étape 5b** — upload custom (drag-drop) : stocker les octets localement pour rendre les customs *guérissables*.
+- [x] **Étape 5c** — identification TMDB : pour les items que Jellyfin n'a pas matchés (pas de provider id → ni candidats ni guérison), recherche TMDB par titre/année, choix manuel, écriture de l'id dans Jellyfin + refresh (corrige aussi le titre). Sur cette bibliothèque : 6 items concernés sur 1873.
+- [x] **Étape 5b** — upload custom (drag-drop / clic) : octets stockés localement (`<data>/custom/`, dans le volume persistant), poster locké, et **guérissable** (la passe de guérison relit le fichier local et le ré-applique). Endpoint `POST /api/items/:id/apply-file`.
 - [x] **Étape 6** — déploiement : Dockerfile (Bun alpine) + `compose.yaml`, repo `Bubu31/posterarr`, stack Komodo (build depuis le repo), DNS `posterarr.busolin.fr` (OVH), guérison auto toutes les 6 h. En ligne : https://posterarr.busolin.fr
 
 ## Déploiement (infra Komodo)

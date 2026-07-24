@@ -4,7 +4,13 @@
 // le tag stocké est mis à jour, donc plus rien à faire tant que rien ne change.
 
 import { addHistory, listLocked, setAppliedTag } from "./db.ts";
-import { getLibraryTargets, getPrimaryTag, uploadImageFromUrl } from "./jellyfin.ts";
+import {
+  getLibraryTargets,
+  getPrimaryTag,
+  uploadImageBytes,
+  uploadImageFromUrl,
+} from "./jellyfin.ts";
+import { readCustom } from "./customStore.ts";
 
 export interface HealReport {
   checked: number;
@@ -41,10 +47,15 @@ export async function heal(): Promise<HealReport> {
             ? "changed"
             : null;
       if (!drifted) continue;
-      if (!m.source_url) continue; // custom sans URL : rien à ré-appliquer (phase upload à venir)
+      if (!m.source_url) continue; // aucune source à ré-appliquer
 
       try {
-        await uploadImageFromUrl(target.itemId, m.image_type, m.source_url);
+        if (m.source === "custom") {
+          const { bytes, contentType } = await readCustom(m.source_url);
+          await uploadImageBytes(target.itemId, m.image_type, bytes, contentType);
+        } else {
+          await uploadImageFromUrl(target.itemId, m.image_type, m.source_url);
+        }
         const newTag = await getPrimaryTag(target.itemId);
         setAppliedTag(m.provider_key, m.image_type, newTag);
         addHistory(m.provider_key, m.image_type, "heal", m.source, m.source_url, new Date().toISOString());

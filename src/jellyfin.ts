@@ -138,20 +138,16 @@ export function providerKey(p: ItemProviders): string | null {
 }
 
 /**
- * Applique une image à un item Jellyfin en la téléchargeant puis en la poussant
- * via l'API. Jellyfin l'écrit en local (folder.jpg) car SaveLocalMetadata=True.
- * Le corps attendu par Jellyfin est l'image encodée en base64.
+ * Pousse des octets d'image à un item Jellyfin. Jellyfin l'écrit en local
+ * (folder.jpg) car SaveLocalMetadata=True. Le corps attendu est l'image en base64.
  */
-export async function uploadImageFromUrl(
+export async function uploadImageBytes(
   itemId: string,
   imageType: string,
-  imageUrl: string,
+  bytes: ArrayBuffer,
+  contentType: string,
 ): Promise<void> {
-  const img = await fetch(imageUrl);
-  if (!img.ok) throw new Error(`Téléchargement image -> ${img.status}`);
-  const contentType = img.headers.get("content-type") ?? "image/jpeg";
-  const base64 = Buffer.from(await img.arrayBuffer()).toString("base64");
-
+  const base64 = Buffer.from(bytes).toString("base64");
   const res = await fetch(`${config.jellyfinUrl}/Items/${itemId}/Images/${imageType}`, {
     method: "POST",
     headers: { "X-Emby-Token": config.jellyfinApiKey, "Content-Type": contentType },
@@ -160,6 +156,18 @@ export async function uploadImageFromUrl(
   if (!res.ok) {
     throw new Error(`Upload Jellyfin ${imageType} -> ${res.status} ${res.statusText}`);
   }
+}
+
+/** Télécharge une image depuis une URL puis la pousse à l'item. */
+export async function uploadImageFromUrl(
+  itemId: string,
+  imageType: string,
+  imageUrl: string,
+): Promise<void> {
+  const img = await fetch(imageUrl);
+  if (!img.ok) throw new Error(`Téléchargement image -> ${img.status}`);
+  const contentType = img.headers.get("content-type") ?? "image/jpeg";
+  await uploadImageBytes(itemId, imageType, await img.arrayBuffer(), contentType);
 }
 
 /** Tag de l'image Primary actuelle d'un item (null si absente). */
@@ -211,6 +219,33 @@ export async function getLibraryTargets(): Promise<LibraryTarget[]> {
       providerKeys: keys,
     };
   });
+}
+
+/**
+ * Écrit un TMDB id dans les ProviderIds d'un item Jellyfin, puis déclenche un
+ * rafraîchissement des métadonnées (corrige le titre/année à partir du bon id).
+ * Les images ne sont pas remplacées (posterarr gère les posters).
+ */
+export async function setTmdbId(itemId: string, tmdbId: string): Promise<void> {
+  const uid = await getUserId();
+  const dto = await jf<Record<string, unknown> & { ProviderIds?: Record<string, string> }>(
+    `/Users/${uid}/Items/${itemId}`,
+  );
+  dto.ProviderIds = { ...(dto.ProviderIds ?? {}), Tmdb: tmdbId };
+  const res = await fetch(`${config.jellyfinUrl}/Items/${itemId}`, {
+    method: "POST",
+    headers: { "X-Emby-Token": config.jellyfinApiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(dto),
+  });
+  if (!res.ok) throw new Error(`UpdateItem -> ${res.status} ${res.statusText}`);
+
+  // Rafraîchit les métadonnées (titre/année) sans toucher aux images.
+  await fetch(
+    `${config.jellyfinUrl}/Items/${itemId}/Refresh` +
+      `?metadataRefreshMode=FullRefresh&replaceAllMetadata=true` +
+      `&imageRefreshMode=Default&replaceAllImages=false`,
+    { method: "POST", headers: { "X-Emby-Token": config.jellyfinApiKey } },
+  );
 }
 
 /** Ping — vérifie que les identifiants Jellyfin fonctionnent. */

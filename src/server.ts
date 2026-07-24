@@ -6,10 +6,14 @@ import {
   getPrimaryTag,
   ping,
   providerKey,
+  setTmdbId,
+  uploadImageBytes,
   uploadImageFromUrl,
 } from "./jellyfin.ts";
 import { activeSourceNames, getCandidates } from "./sources/index.ts";
+import { searchTmdb } from "./sources/tmdb.ts";
 import { addHistory, getManaged, setAppliedTag, setLock, upsertManaged } from "./db.ts";
+import { extFromContentType, saveCustom } from "./customStore.ts";
 import { heal } from "./healer.ts";
 
 const app = new Hono();
@@ -75,6 +79,30 @@ app.post("/api/items/:id/apply", async (c) => {
   return c.json({ ok: true, managed: getManaged(key, imageType) });
 });
 
+// Upload d'un poster custom (multipart). Stocké localement (guérissable) + locké.
+app.post("/api/items/:id/apply-file", async (c) => {
+  const form = await c.req.parseBody();
+  const file = form["file"];
+  if (!(file instanceof File)) return c.json({ error: "Fichier 'file' manquant" }, 400);
+  const imageType = typeof form["imageType"] === "string" ? form["imageType"] : "Primary";
+
+  const providers = await getItemProviders(c.req.param("id"));
+  const key = providerKey(providers);
+  if (!key) return c.json({ error: "Item sans identifiant stable" }, 422);
+
+  const bytes = await file.arrayBuffer();
+  const contentType = file.type || "image/jpeg";
+  const marker = await saveCustom(key, imageType, bytes, extFromContentType(contentType));
+  await uploadImageBytes(providers.id, imageType, bytes, contentType);
+
+  const now = new Date().toISOString();
+  upsertManaged(key, imageType, "custom", marker, true, now);
+  setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
+  addHistory(key, imageType, "apply", "custom", marker, now);
+
+  return c.json({ ok: true, managed: getManaged(key, imageType) });
+});
+
 // Verrouille / déverrouille un item (sans changer le poster).
 app.post("/api/items/:id/lock", async (c) => {
   const body = await c.req.json<{ locked: boolean; imageType?: string }>();
@@ -88,6 +116,24 @@ app.post("/api/items/:id/lock", async (c) => {
   setLock(key, imageType, body.locked);
   addHistory(key, imageType, body.locked ? "lock" : "unlock", null, null, new Date().toISOString());
   return c.json({ ok: true, managed: getManaged(key, imageType) });
+});
+
+// Recherche TMDB pour identifier un item que Jellyfin n'a pas matché.
+app.get("/api/tmdb/search", async (c) => {
+  const type = c.req.query("type") === "Series" ? "Series" : "Movie";
+  const query = c.req.query("query") ?? "";
+  const yearRaw = c.req.query("year");
+  const year = yearRaw ? Number(yearRaw) : undefined;
+  const results = await searchTmdb(type, query, Number.isNaN(year) ? undefined : year);
+  return c.json({ results });
+});
+
+// Associe un TMDB id à un item (écrit dans Jellyfin + refresh métadonnées).
+app.post("/api/items/:id/set-tmdb", async (c) => {
+  const body = await c.req.json<{ tmdbId: string }>();
+  if (!body.tmdbId) return c.json({ error: "tmdbId manquant" }, 400);
+  await setTmdbId(c.req.param("id"), body.tmdbId);
+  return c.json({ ok: true });
 });
 
 // Lance une passe de guérison à la demande.
