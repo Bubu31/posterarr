@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { config } from "./config.ts";
 import {
+  getCollections,
   getItemProviders,
   getLibrary,
   getPrimaryTag,
@@ -30,6 +31,12 @@ app.get("/api/health", async (c) => {
 app.get("/api/library", async (c) => {
   const items = await getLibrary();
   return c.json({ count: items.length, items });
+});
+
+// Collections avec leurs films (vue liste dédiée).
+app.get("/api/collections", async (c) => {
+  const collections = await getCollections();
+  return c.json({ count: collections.length, collections });
 });
 
 // Candidats de posters pour un item : résout ses ProviderIds puis interroge les sources.

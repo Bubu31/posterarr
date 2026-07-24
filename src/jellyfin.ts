@@ -248,6 +248,73 @@ export async function setTmdbId(itemId: string, tmdbId: string): Promise<void> {
   );
 }
 
+export interface CollectionItem {
+  id: string;
+  name: string;
+  year: number | null;
+  posterUrl: string | null;
+  members: Array<{ id: string; name: string; year: number | null; posterUrl: string | null }>;
+}
+
+interface JfMember {
+  Id: string;
+  Name: string;
+  ProductionYear?: number;
+  ImageTags?: { Primary?: string };
+}
+
+/** Films membres d'une collection (BoxSet) — nécessite le contexte utilisateur. */
+async function getCollectionMembers(uid: string, boxsetId: string) {
+  const data = await jf<{ Items: JfMember[] }>(`/Users/${uid}/Items`, {
+    parentId: boxsetId,
+    Fields: "ProductionYear",
+    SortBy: "ProductionYear,SortName",
+    SortOrder: "Ascending",
+    EnableImageTypes: "Primary",
+  });
+  return data.Items.map((m) => ({
+    id: m.Id,
+    name: m.Name,
+    year: m.ProductionYear ?? null,
+    posterUrl: posterUrl(m.Id, m.ImageTags?.Primary ?? null),
+  }));
+}
+
+/** Toutes les collections avec leurs films (pour la vue liste). */
+export async function getCollections(): Promise<CollectionItem[]> {
+  const uid = await getUserId();
+  const data = await jf<{ Items: JfMember[] }>("/Items", {
+    Recursive: "true",
+    IncludeItemTypes: "BoxSet",
+    Fields: "ProductionYear",
+    SortBy: "SortName",
+    SortOrder: "Ascending",
+    EnableImageTypes: "Primary",
+  });
+  const boxsets = data.Items;
+
+  // Récupère les membres avec une concurrence limitée (186 collections → ne pas noyer Jellyfin).
+  const out: CollectionItem[] = new Array(boxsets.length);
+  const CONCURRENCY = 8;
+  let i = 0;
+  async function worker() {
+    while (i < boxsets.length) {
+      const idx = i++;
+      const bs = boxsets[idx];
+      const members = await getCollectionMembers(uid, bs.Id).catch(() => []);
+      out[idx] = {
+        id: bs.Id,
+        name: bs.Name,
+        year: bs.ProductionYear ?? null,
+        posterUrl: posterUrl(bs.Id, bs.ImageTags?.Primary ?? null),
+        members,
+      };
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  return out;
+}
+
 /** Ping — vérifie que les identifiants Jellyfin fonctionnent. */
 export async function ping(): Promise<{ serverName: string; version: string }> {
   const info = await jf<{ ServerName: string; Version: string }>("/System/Info");
