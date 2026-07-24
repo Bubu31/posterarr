@@ -1,0 +1,36 @@
+---
+services:
+  posterarr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: posterarr:git-${POSTERARR_TAG:-latest}
+    pull_policy: build
+    container_name: posterarr
+    environment:
+      # API Jellyfin en interne (même réseau traefik-net)
+      - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin:8096}
+      # URL publique pour les images affichées dans le navigateur
+      - JELLYFIN_PUBLIC_URL=${JELLYFIN_PUBLIC_URL:-https://jellyfin.busolin.fr}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - FANART_API_KEY=${FANART_API_KEY}
+      - TVDB_API_KEY=${TVDB_API_KEY:-}
+      # Guérison automatique (minutes) ; 360 = toutes les 6 h
+      - HEAL_INTERVAL_MIN=${HEAL_INTERVAL_MIN:-360}
+      - DB_PATH=/data/posterarr.db
+    volumes:
+      - /home/bubu/posterarr/data:/data
+    networks:
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.posterarr.rule=Host(`posterarr.busolin.fr`)"
+      - "traefik.http.routers.posterarr.entrypoints=websecure"
+      - "traefik.http.routers.posterarr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.posterarr.loadbalancer.server.port=3939"
+    restart: unless-stopped
+
+networks:
+  traefik-net:
+    external: true

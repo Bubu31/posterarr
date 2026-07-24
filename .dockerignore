@@ -1,0 +1,6 @@
+node_modules
+.env
+*.db
+*.db-*
+.git
+.youtube_ghosts.json

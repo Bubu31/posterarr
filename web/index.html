@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>posterarr</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #0e0f13; --card: #1a1c22; --fg: #e8e8ea; --muted: #8a8d97; --accent: #6279cd; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, sans-serif; }
+    header { padding: 1rem 1.5rem; border-bottom: 1px solid #2a2d36; display: flex; gap: 1rem; align-items: baseline; position: sticky; top: 0; background: var(--bg); z-index: 10; }
+    header h1 { margin: 0; font-size: 1.3rem; }
+    header .stats { color: var(--muted); font-size: .9rem; }
+    header input { margin-left: auto; background: var(--card); border: 1px solid #2a2d36; color: var(--fg); padding: .5rem .8rem; border-radius: 8px; min-width: 220px; }
+    .filters { padding: .6rem 1.5rem; display: flex; gap: .5rem; }
+    .filters button { background: var(--card); border: 1px solid #2a2d36; color: var(--fg); padding: .35rem .8rem; border-radius: 999px; cursor: pointer; }
+    .filters button.active { background: var(--accent); border-color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; padding: 1.5rem; }
+    .card { background: var(--card); border-radius: 10px; overflow: hidden; }
+    .poster { aspect-ratio: 2/3; background: #24262e center/cover no-repeat; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: .8rem; text-align: center; padding: .5rem; }
+    .card .meta { padding: .5rem .6rem; }
+    .card .name { font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card .sub { color: var(--muted); font-size: .75rem; }
+    .badge { display: inline-block; font-size: .65rem; padding: .1rem .4rem; border-radius: 4px; background: #3a2020; color: #ff9a9a; }
+    .card .poster { cursor: pointer; }
+    /* overlay détail */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: none; z-index: 20; overflow: auto; }
+    .overlay.open { display: block; }
+    .panel { max-width: 1100px; margin: 3rem auto; background: var(--bg); border: 1px solid #2a2d36; border-radius: 12px; padding: 1.5rem; }
+    .panel h2 { margin: 0 0 .3rem; }
+    .panel .close { float: right; background: var(--card); border: 1px solid #2a2d36; color: var(--fg); border-radius: 8px; padding: .3rem .7rem; cursor: pointer; }
+    .cand-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .8rem; margin-top: 1rem; }
+    .cand { position: relative; border-radius: 8px; overflow: hidden; border: 2px solid transparent; }
+    .cand img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: #24262e; }
+    .cand .tag { position: absolute; top: 4px; left: 4px; font-size: .6rem; padding: .1rem .35rem; border-radius: 4px; background: rgba(0,0,0,.7); }
+    .cand .tag.lang { right: 4px; left: auto; background: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>posterarr</h1>
+    <span class="stats" id="stats">chargement…</span>
+    <button id="heal-btn" onclick="runHeal()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">🩹 Guérir</button>
+    <input id="search" placeholder="Rechercher…" />
+  </header>
+  <div class="filters" id="filters"></div>
+  <div class="grid" id="grid"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="panel">
+      <button class="close" onclick="closeDetail()">Fermer</button>
+      <h2 id="d-name"></h2>
+      <div class="sub" id="d-sub"></div>
+      <div id="d-lock" style="margin-top:.6rem"></div>
+      <div class="cand-grid" id="cand-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    const TYPES = { all: "Tout", Movie: "Films", Series: "Séries", BoxSet: "Collections" };
+    let items = [], filter = "all", q = "";
+
+    async function load() {
+      const r = await fetch("/api/library");
+      const d = await r.json();
+      items = d.items;
+      document.getElementById("stats").textContent =
+        `${d.count} items · ${items.filter(i => !i.posterUrl).length} sans poster`;
+      renderFilters();
+      render();
+    }
+
+    function renderFilters() {
+      const f = document.getElementById("filters");
+      f.innerHTML = "";
+      for (const [k, label] of Object.entries(TYPES)) {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.className = k === filter ? "active" : "";
+        b.onclick = () => { filter = k; renderFilters(); render(); };
+        f.appendChild(b);
+      }
+    }
+
+    function render() {
+      const grid = document.getElementById("grid");
+      const list = items.filter(i =>
+        (filter === "all" || i.type === filter) &&
+        (!q || i.name.toLowerCase().includes(q))
+      );
+      grid.innerHTML = "";
+      for (const i of list.slice(0, 300)) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const poster = i.posterUrl
+          ? `<div class="poster" style="background-image:url('${i.posterUrl}')" onclick="openDetail('${i.id}')"></div>`
+          : `<div class="poster" onclick="openDetail('${i.id}')">pas de poster</div>`;
+        card.innerHTML = `${poster}<div class="meta">
+          <div class="name" title="${i.name}">${i.name}</div>
+          <div class="sub">${i.year ?? ""} ${i.posterUrl ? "" : '<span class="badge">manquant</span>'}</div>
+        </div>`;
+        grid.appendChild(card);
+      }
+      if (list.length > 300) {
+        const note = document.createElement("div");
+        note.style.cssText = "grid-column:1/-1;color:var(--muted);text-align:center";
+        note.textContent = `… ${list.length - 300} de plus (pagination à venir)`;
+        grid.appendChild(note);
+      }
+    }
+
+    let current = null; // { id, managed }
+
+    async function openDetail(id) {
+      const ov = document.getElementById("overlay");
+      ov.classList.add("open");
+      document.getElementById("d-name").textContent = "Chargement des candidats…";
+      document.getElementById("d-sub").textContent = "";
+      document.getElementById("d-lock").innerHTML = "";
+      document.getElementById("cand-grid").innerHTML = "";
+      const r = await fetch(`/api/items/${id}/candidates`);
+      const d = await r.json();
+      current = { id, managed: d.managed };
+      document.getElementById("d-name").textContent = d.item.name;
+      document.getElementById("d-sub").textContent =
+        `${d.count} candidats · sources : ${d.sources.join(", ") || "aucune"} · tmdb ${d.item.tmdbId ?? "—"}`;
+      renderLock();
+      const g = document.getElementById("cand-grid");
+      g.innerHTML = "";
+      for (const c of d.candidates.slice(0, 60)) {
+        const el = document.createElement("div");
+        el.className = "cand";
+        const applied = current.managed && current.managed.source_url === c.url;
+        el.innerHTML = `<img loading="lazy" src="${c.thumbUrl}" />
+          <span class="tag">${c.source}</span>
+          ${c.lang ? `<span class="tag lang">${c.lang}</span>` : ""}
+          ${applied ? '<span class="tag" style="bottom:4px;top:auto;background:#1e7a3a">appliqué</span>' : ""}`;
+        el.style.cursor = "pointer";
+        el.title = "Cliquer pour appliquer et verrouiller";
+        el.onclick = () => apply(c);
+        g.appendChild(el);
+      }
+    }
+
+    function renderLock() {
+      const el = document.getElementById("d-lock");
+      const m = current.managed;
+      if (!m) { el.innerHTML = '<span class="sub">Non géré — clique un poster pour l\'appliquer.</span>'; return; }
+      const locked = m.locked === 1;
+      el.innerHTML = `<span class="badge" style="background:${locked ? '#1e3a5f' : '#3a3320'};color:${locked ? '#9ac4ff' : '#ffd98a'}">
+        ${locked ? '🔒 verrouillé' : '🔓 déverrouillé'}</span>
+        <button class="close" style="float:none;margin-left:.6rem" onclick="toggleLock()">${locked ? 'Déverrouiller' : 'Verrouiller'}</button>
+        <span class="sub" style="margin-left:.6rem">source : ${m.source}</span>`;
+    }
+
+    async function apply(c) {
+      document.getElementById("d-lock").innerHTML = '<span class="sub">Application…</span>';
+      const r = await fetch(`/api/items/${current.id}/apply`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: c.url, source: c.source }),
+      });
+      const d = await r.json();
+      if (d.ok) { current.managed = d.managed; openDetail(current.id); load(); }
+      else alert("Échec : " + (d.error || "inconnu"));
+    }
+
+    async function toggleLock() {
+      const locked = !(current.managed && current.managed.locked === 1);
+      const r = await fetch(`/api/items/${current.id}/lock`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked }),
+      });
+      const d = await r.json();
+      if (d.ok) { current.managed = d.managed; renderLock(); }
+      else alert("Échec : " + (d.error || "inconnu"));
+    }
+
+    async function runHeal() {
+      const btn = document.getElementById("heal-btn");
+      const old = btn.textContent;
+      btn.textContent = "🩹 Guérison…"; btn.disabled = true;
+      try {
+        const r = await fetch("/api/heal", { method: "POST" });
+        const d = await r.json();
+        if (d.error) { alert("Guérison : " + d.error); return; }
+        const lines = [
+          `${d.checked} item(s) verrouillé(s) vérifié(s)`,
+          `${d.healed.length} poster(s) restauré(s)` + (d.healed.length ? " :\n" + d.healed.map(h => `  · ${h.name} (${h.reason === "missing" ? "disparu" : "remplacé"})`).join("\n") : ""),
+          d.notFound.length ? `${d.notFound.length} introuvable(s) dans Jellyfin` : "",
+          d.errors.length ? `${d.errors.length} erreur(s)` : "",
+        ].filter(Boolean);
+        alert("Guérison terminée\n\n" + lines.join("\n"));
+        if (d.healed.length) load();
+      } finally { btn.textContent = old; btn.disabled = false; }
+    }
+
+    function closeDetail() { document.getElementById("overlay").classList.remove("open"); }
+    document.getElementById("overlay").onclick = (e) => { if (e.target.id === "overlay") closeDetail(); };
+
+    document.getElementById("search").oninput = (e) => { q = e.target.value.toLowerCase(); render(); };
+    load();
+  </script>
+</body>
+</html>
