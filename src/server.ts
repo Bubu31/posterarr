@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { config } from "./config.ts";
 import {
+  getCollectionMembers,
   getCollections,
   getItemProviders,
   getLibrary,
@@ -8,13 +9,13 @@ import {
   ping,
   providerKey,
   setTmdbId,
-  uploadImageBytes,
   uploadImageFromUrl,
 } from "./jellyfin.ts";
 import { activeSourceNames, getCandidates } from "./sources/index.ts";
 import { searchTmdb } from "./sources/tmdb.ts";
 import { addHistory, getManaged, setAppliedTag, setLock, upsertManaged } from "./db.ts";
-import { extFromContentType, saveCustom } from "./customStore.ts";
+import { applyBytesToItem } from "./applyPoster.ts";
+import { applyPosterZip } from "./posterZip.ts";
 import { heal } from "./healer.ts";
 
 const app = new Hono();
@@ -93,21 +94,30 @@ app.post("/api/items/:id/apply-file", async (c) => {
   if (!(file instanceof File)) return c.json({ error: "Fichier 'file' manquant" }, 400);
   const imageType = typeof form["imageType"] === "string" ? form["imageType"] : "Primary";
 
-  const providers = await getItemProviders(c.req.param("id"));
-  const key = providerKey(providers);
-  if (!key) return c.json({ error: "Item sans identifiant stable" }, 422);
+  try {
+    const managed = await applyBytesToItem(
+      c.req.param("id"),
+      imageType,
+      await file.arrayBuffer(),
+      file.type || "image/jpeg",
+      "custom",
+    );
+    return c.json({ ok: true, managed });
+  } catch (e) {
+    return c.json({ error: String(e) }, 422);
+  }
+});
 
-  const bytes = await file.arrayBuffer();
-  const contentType = file.type || "image/jpeg";
-  const marker = await saveCustom(key, imageType, bytes, extFromContentType(contentType));
-  await uploadImageBytes(providers.id, imageType, bytes, contentType);
+// Applique un set ThePosterDB (zip) à une collection + ses films (match par année).
+app.post("/api/collections/:id/apply-zip", async (c) => {
+  const form = await c.req.parseBody();
+  const file = form["file"];
+  if (!(file instanceof File)) return c.json({ error: "Zip 'file' manquant" }, 400);
 
-  const now = new Date().toISOString();
-  upsertManaged(key, imageType, "custom", marker, true, now);
-  setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
-  addHistory(key, imageType, "apply", "custom", marker, now);
-
-  return c.json({ ok: true, managed: getManaged(key, imageType) });
+  const members = await getCollectionMembers(c.req.param("id"));
+  const zipBytes = new Uint8Array(await file.arrayBuffer());
+  const report = await applyPosterZip(c.req.param("id"), members, zipBytes);
+  return c.json({ ok: true, ...report });
 });
 
 // Verrouille / déverrouille un item (sans changer le poster).

@@ -40,6 +40,8 @@ bun dev                # http://localhost:3939
 | `GET /api/tmdb/search` | Recherche TMDB (`?type=&query=&year=`) pour identifier un item non matché par Jellyfin. |
 | `POST /api/items/:id/set-tmdb` | Associe un TMDB id (`{tmdbId}`) → l'écrit dans Jellyfin + refresh métadonnées (corrige le titre). |
 | `POST /api/heal` | Passe de guérison : ré-applique les posters verrouillés disparus ou remplacés. |
+| `GET /api/collections` | Collections (BoxSet) avec leurs films membres, pour la vue liste. |
+| `POST /api/collections/:id/apply-zip` | Applique un set ThePosterDB (zip) : poster de collection + posters des films, matchés par année. |
 | `GET /` | Front : grille + vue détail (candidats, appliquer, verrouiller). |
 
 ## Feuille de route

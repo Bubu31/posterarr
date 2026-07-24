@@ -263,8 +263,9 @@ interface JfMember {
   ImageTags?: { Primary?: string };
 }
 
-/** Films membres d'une collection (BoxSet) — nécessite le contexte utilisateur. */
-async function getCollectionMembers(uid: string, boxsetId: string) {
+/** Films membres d'une collection (BoxSet). */
+export async function getCollectionMembers(boxsetId: string) {
+  const uid = await getUserId();
   const data = await jf<{ Items: JfMember[] }>(`/Users/${uid}/Items`, {
     parentId: boxsetId,
     Fields: "ProductionYear",
@@ -282,7 +283,6 @@ async function getCollectionMembers(uid: string, boxsetId: string) {
 
 /** Toutes les collections avec leurs films (pour la vue liste). */
 export async function getCollections(): Promise<CollectionItem[]> {
-  const uid = await getUserId();
   const data = await jf<{ Items: JfMember[] }>("/Items", {
     Recursive: "true",
     IncludeItemTypes: "BoxSet",
@@ -301,7 +301,7 @@ export async function getCollections(): Promise<CollectionItem[]> {
     while (i < boxsets.length) {
       const idx = i++;
       const bs = boxsets[idx];
-      const members = await getCollectionMembers(uid, bs.Id).catch(() => []);
+      const members = await getCollectionMembers(bs.Id).catch(() => []);
       out[idx] = {
         id: bs.Id,
         name: bs.Name,

@@ -50,7 +50,9 @@ export async function heal(): Promise<HealReport> {
       if (!m.source_url) continue; // aucune source à ré-appliquer
 
       try {
-        if (m.source === "custom") {
+        // Marqueur "custom/…" = image stockée localement (upload custom OU zip PosterDB) ;
+        // sinon c'est une URL (tmdb/fanart) à re-télécharger.
+        if (m.source_url.startsWith("custom/")) {
           const { bytes, contentType } = await readCustom(m.source_url);
           await uploadImageBytes(target.itemId, m.image_type, bytes, contentType);
         } else {
