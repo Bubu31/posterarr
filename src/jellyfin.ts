@@ -2,6 +2,7 @@
 // et récupérer les images. On s'authentifie via le header X-Emby-Token.
 
 import { config } from "./config.ts";
+import { listManaged } from "./db.ts";
 
 export type MediaType = "Movie" | "Series" | "BoxSet";
 
@@ -53,8 +54,18 @@ interface JfItemsResponse {
     Type: MediaType;
     ProductionYear?: number;
     ImageTags?: { Primary?: string };
+    ProviderIds?: Record<string, string>;
+    Path?: string;
   }>;
   TotalRecordCount: number;
+}
+
+function providerKeyFromIds(ids: Record<string, string> | undefined): string | null {
+  const p = new Map(Object.entries(ids ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  if (p.get("tmdb")) return `tmdb:${p.get("tmdb")}`;
+  if (p.get("imdb")) return `imdb:${p.get("imdb")}`;
+  if (p.get("tvdb")) return `tvdb:${p.get("tvdb")}`;
+  return null;
 }
 
 /** Emplacements des bibliothèques actives (pour écarter les items orphelins). */
@@ -108,7 +119,7 @@ export async function getLibrary(): Promise<LibraryItem[]> {
     jf<JfItemsResponse>("/Items", {
       Recursive: "true",
       IncludeItemTypes: "Movie,Series,BoxSet",
-      Fields: "ProductionYear,Path",
+      Fields: "ProductionYear,Path,ProviderIds",
       SortBy: "SortName",
       SortOrder: "Ascending",
       EnableImageTypes: "Primary",
@@ -116,12 +127,19 @@ export async function getLibrary(): Promise<LibraryItem[]> {
     getLibraryLocations(),
     getCollectionMemberIds(),
   ]);
+  // Fallback : le listing bulk Jellyfin renvoie parfois ImageTags vide après un
+  // refresh de métadonnées, alors que posterarr a bien appliqué un poster. On
+  // récupère alors le tag depuis notre DB (applied_tag) pour l'afficher quand même.
+  const appliedByKey = new Map<string, string>();
+  for (const m of listManaged()) {
+    if (m.image_type === "Primary" && m.applied_tag) appliedByKey.set(m.provider_key, m.applied_tag);
+  }
   return data.Items.filter((it) => {
-    const path = (it as { Path?: string }).Path;
-    if (!path) return true; // pas de chemin (collections…) : on garde
-    return locations.some((loc) => path.startsWith(loc));
+    if (!it.Path) return true; // pas de chemin (collections…) : on garde
+    return locations.some((loc) => it.Path!.startsWith(loc));
   }).map((it) => {
-    const tag = it.ImageTags?.Primary ?? null;
+    const key = providerKeyFromIds(it.ProviderIds);
+    const tag = it.ImageTags?.Primary ?? (key ? appliedByKey.get(key) ?? null : null);
     return {
       id: it.Id,
       name: it.Name,
