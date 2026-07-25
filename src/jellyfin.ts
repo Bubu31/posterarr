@@ -14,6 +14,8 @@ export interface LibraryItem {
   primaryTag: string | null;
   /** URL du poster actuel côté Jellyfin (proxy plus tard si besoin), ou null */
   posterUrl: string | null;
+  /** true si le film appartient à une collection (BoxSet) — pour filtrer l'onglet Films. */
+  inCollection: boolean;
 }
 
 async function jf<T>(path: string, params: Record<string, string> = {}): Promise<T> {
@@ -61,6 +63,39 @@ async function getLibraryLocations(): Promise<string[]> {
   return vfs.flatMap((v) => v.Locations ?? []);
 }
 
+// Ensemble des ids de films appartenant à une collection (BoxSet). Mis en cache
+// (les collections changent peu) pour ne pas refaire ~186 requêtes à chaque /api/library.
+let memberCache: { ids: Set<string>; at: number } | null = null;
+const MEMBER_TTL_MS = 5 * 60_000;
+
+async function getCollectionMemberIds(): Promise<Set<string>> {
+  if (memberCache && Date.now() - memberCache.at < MEMBER_TTL_MS) return memberCache.ids;
+  const uid = await getUserId();
+  const boxsets = await jf<{ Items: Array<{ Id: string }> }>("/Items", {
+    Recursive: "true",
+    IncludeItemTypes: "BoxSet",
+  });
+  const ids = new Set<string>();
+  const CONCURRENCY = 8;
+  let i = 0;
+  async function worker() {
+    while (i < boxsets.Items.length) {
+      const bs = boxsets.Items[i++];
+      try {
+        const m = await jf<{ Items: Array<{ Id: string }> }>(`/Users/${uid}/Items`, {
+          parentId: bs.Id,
+        });
+        for (const it of m.Items) ids.add(it.Id);
+      } catch {
+        /* collection illisible : on ignore */
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  memberCache = { ids, at: Date.now() };
+  return ids;
+}
+
 /**
  * Liste films, séries et collections avec l'état de leur poster actuel.
  * Écarte les items orphelins : quand une bibliothèque est supprimée dans Jellyfin,
@@ -69,7 +104,7 @@ async function getLibraryLocations(): Promise<string[]> {
  * (les items sans chemin, ex. collections, sont conservés).
  */
 export async function getLibrary(): Promise<LibraryItem[]> {
-  const [data, locations] = await Promise.all([
+  const [data, locations, memberIds] = await Promise.all([
     jf<JfItemsResponse>("/Items", {
       Recursive: "true",
       IncludeItemTypes: "Movie,Series,BoxSet",
@@ -79,6 +114,7 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       EnableImageTypes: "Primary",
     }),
     getLibraryLocations(),
+    getCollectionMemberIds(),
   ]);
   return data.Items.filter((it) => {
     const path = (it as { Path?: string }).Path;
@@ -93,6 +129,7 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       year: it.ProductionYear ?? null,
       primaryTag: tag,
       posterUrl: posterUrl(it.Id, tag),
+      inCollection: memberIds.has(it.Id),
     };
   });
 }

@@ -116,6 +116,8 @@
       collist.style.display = "none";
       const list = items.filter(i =>
         (filter === "all" || i.type === filter) &&
+        // onglet Films : masquer les films déjà dans une collection
+        !(filter === "Movie" && i.inCollection) &&
         (!q || i.name.toLowerCase().includes(q))
       );
       grid.innerHTML = "";
