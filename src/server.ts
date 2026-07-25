@@ -5,9 +5,9 @@ import {
   getGroups,
   getSeasonsForZip,
   getSeries,
+  getImageTag,
   getItemProviders,
   getLibrary,
-  getPrimaryTag,
   invalidateGroupsCache,
   ping,
   providerKey,
@@ -15,7 +15,13 @@ import {
   uploadImageFromUrl,
 } from "./jellyfin.ts";
 import { activeSourceNames, getCandidates } from "./sources/index.ts";
+import { IMAGE_TYPES, type ImageType } from "./sources/types.ts";
 import { searchTmdb } from "./sources/tmdb.ts";
+
+/** Valide un imageType venu de la requête ; défaut Primary. */
+function parseImageType(raw: string | undefined): ImageType {
+  return IMAGE_TYPES.includes(raw as ImageType) ? (raw as ImageType) : "Primary";
+}
 import { addHistory, getManaged, setAppliedTag, setLock, upsertManaged } from "./db.ts";
 import { applyBytesToItem } from "./applyPoster.ts";
 import { applyPosterZip, applySeriesZip } from "./posterZip.ts";
@@ -51,6 +57,7 @@ app.get("/api/series", async (c) => {
 
 // Candidats de posters pour un item : résout ses ProviderIds puis interroge les sources.
 app.get("/api/items/:id/candidates", async (c) => {
+  const imageType = parseImageType(c.req.query("imageType"));
   const providers = await getItemProviders(c.req.param("id"));
   const ref = {
     type: providers.type,
@@ -59,11 +66,12 @@ app.get("/api/items/:id/candidates", async (c) => {
     tvdbId: providers.tvdbId,
     seasonNumber: providers.seasonNumber,
   };
-  const candidates = await getCandidates(ref);
+  const candidates = await getCandidates(ref, imageType);
   const key = providerKey(providers);
   return c.json({
     item: providers,
-    managed: key ? getManaged(key) : null,
+    imageType,
+    managed: key ? getManaged(key, imageType) : null,
     sources: activeSourceNames(ref),
     count: candidates.length,
     candidates,
@@ -79,7 +87,7 @@ app.post("/api/items/:id/apply", async (c) => {
     imageType?: string;
     lock?: boolean;
   }>();
-  const imageType = body.imageType ?? "Primary";
+  const imageType = parseImageType(body.imageType);
   const lock = body.lock ?? true;
 
   const providers = await getItemProviders(c.req.param("id"));
@@ -91,7 +99,7 @@ app.post("/api/items/:id/apply", async (c) => {
   const now = new Date().toISOString();
   upsertManaged(key, imageType, body.source, body.url, lock, now, providers.id);
   // Mémorise le tag résultant pour détecter une dérive future (guérison).
-  setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
+  setAppliedTag(key, imageType, await getImageTag(providers.id, imageType));
   addHistory(key, imageType, "apply", body.source, body.url, now);
   invalidateGroupsCache();
 
@@ -103,7 +111,9 @@ app.post("/api/items/:id/apply-file", async (c) => {
   const form = await c.req.parseBody();
   const file = form["file"];
   if (!(file instanceof File)) return c.json({ error: "Fichier 'file' manquant" }, 400);
-  const imageType = typeof form["imageType"] === "string" ? form["imageType"] : "Primary";
+  const imageType = parseImageType(
+    typeof form["imageType"] === "string" ? form["imageType"] : undefined,
+  );
 
   try {
     const managed = await applyBytesToItem(
@@ -146,7 +156,7 @@ app.post("/api/series/:id/apply-zip", async (c) => {
 // Verrouille / déverrouille un item (sans changer le poster).
 app.post("/api/items/:id/lock", async (c) => {
   const body = await c.req.json<{ locked: boolean; imageType?: string }>();
-  const imageType = body.imageType ?? "Primary";
+  const imageType = parseImageType(body.imageType);
   const providers = await getItemProviders(c.req.param("id"));
   const key = providerKey(providers);
   if (!key) return c.json({ error: "Item sans identifiant stable" }, 422);
