@@ -64,11 +64,13 @@ interface JfItemsResponse {
  * Maps du tag appliqué par posterarr (le listing bulk Jellyfin peut être périmé
  * après un refresh). Le tag managé prime : c'est le poster que posterarr gère.
  */
-function buildAppliedMaps(): { byItemId: Map<string, string>; byKey: Map<string, string> } {
+function buildAppliedMaps(
+  imageType = "Primary",
+): { byItemId: Map<string, string>; byKey: Map<string, string> } {
   const byItemId = new Map<string, string>();
   const byKey = new Map<string, string>();
   for (const m of listManaged()) {
-    if (m.image_type !== "Primary" || !m.applied_tag) continue;
+    if (m.image_type !== imageType || !m.applied_tag) continue;
     byKey.set(m.provider_key, m.applied_tag);
     if (m.jellyfin_item_id) byItemId.set(m.jellyfin_item_id, m.applied_tag);
   }
@@ -263,17 +265,26 @@ export async function uploadImageFromUrl(
   await uploadImageBytes(itemId, imageType, await img.arrayBuffer(), contentType);
 }
 
-/** Tag de l'image Primary actuelle d'un item (null si absente). */
-export async function getPrimaryTag(itemId: string): Promise<string | null> {
+/**
+ * Tag de l'image `imageType` actuelle d'un item (null si absente).
+ * Backdrop est multiple côté Jellyfin (BackdropImageTags[]) : on ne gère que
+ * le principal (index 0). Les autres types vivent dans ImageTags.
+ */
+export async function getImageTag(itemId: string, imageType: string): Promise<string | null> {
   const uid = await getUserId();
-  const it = await jf<{ ImageTags?: { Primary?: string } }>(`/Users/${uid}/Items/${itemId}`);
-  return it.ImageTags?.Primary ?? null;
+  const it = await jf<{
+    ImageTags?: Record<string, string>;
+    BackdropImageTags?: string[];
+  }>(`/Users/${uid}/Items/${itemId}`);
+  if (imageType === "Backdrop") return it.BackdropImageTags?.[0] ?? null;
+  return it.ImageTags?.[imageType] ?? null;
 }
 
 export interface LibraryTarget {
   itemId: string;
   name: string;
-  primaryTag: string | null;
+  /** Tag Jellyfin courant par type d'image (Primary/Logo/Thumb/Banner + Backdrop[0]). */
+  tags: Record<string, string | null>;
   /** Toutes les clés possibles (tmdb:/imdb:/tvdb:) pour matcher un provider_key stocké. */
   providerKeys: string[];
 }
@@ -281,7 +292,7 @@ export interface LibraryTarget {
 /**
  * Bibliothèque avec ProviderIds — une seule requête. Sert à la passe de guérison
  * pour retrouver l'item Jellyfin courant à partir d'un provider_key (l'ItemId a pu
- * changer après un upgrade).
+ * changer après un upgrade) et détecter une dérive sur n'importe quel type d'image.
  */
 export async function getLibraryTargets(): Promise<LibraryTarget[]> {
   const data = await jf<{
@@ -289,13 +300,14 @@ export async function getLibraryTargets(): Promise<LibraryTarget[]> {
       Id: string;
       Name: string;
       ProviderIds?: Record<string, string>;
-      ImageTags?: { Primary?: string };
+      ImageTags?: Record<string, string>;
+      BackdropImageTags?: string[];
     }>;
   }>("/Items", {
     Recursive: "true",
     IncludeItemTypes: "Movie,Series,BoxSet,Season",
     Fields: "ProviderIds",
-    EnableImageTypes: "Primary",
+    EnableImageTypes: "Primary,Backdrop,Logo,Thumb,Banner",
   });
   return data.Items.map((it) => {
     const p = new Map(
@@ -308,7 +320,13 @@ export async function getLibraryTargets(): Promise<LibraryTarget[]> {
     return {
       itemId: it.Id,
       name: it.Name,
-      primaryTag: it.ImageTags?.Primary ?? null,
+      tags: {
+        Primary: it.ImageTags?.Primary ?? null,
+        Backdrop: it.BackdropImageTags?.[0] ?? null,
+        Logo: it.ImageTags?.Logo ?? null,
+        Thumb: it.ImageTags?.Thumb ?? null,
+        Banner: it.ImageTags?.Banner ?? null,
+      },
       providerKeys: keys,
     };
   });

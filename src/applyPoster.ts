@@ -4,8 +4,8 @@
 import { addHistory, getManaged, setAppliedTag, upsertManaged } from "./db.ts";
 import { extFromContentType, saveCustom } from "./customStore.ts";
 import {
+  getImageTag,
   getItemProviders,
-  getPrimaryTag,
   invalidateGroupsCache,
   providerKey,
   uploadImageBytes,
@@ -27,7 +27,7 @@ export async function applyBytesToItem(
 
   const now = new Date().toISOString();
   upsertManaged(key, imageType, source, marker, true, now, providers.id);
-  setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
+  setAppliedTag(key, imageType, await getImageTag(providers.id, imageType));
   addHistory(key, imageType, "apply", source, marker, now);
   invalidateGroupsCache();
   return getManaged(key, imageType);

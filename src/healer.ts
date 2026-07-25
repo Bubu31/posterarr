@@ -5,8 +5,8 @@
 
 import { addHistory, listLocked, setAppliedTag } from "./db.ts";
 import {
+  getImageTag,
   getLibraryTargets,
-  getPrimaryTag,
   uploadImageBytes,
   uploadImageFromUrl,
 } from "./jellyfin.ts";
@@ -45,10 +45,11 @@ export async function heal(): Promise<HealReport> {
         report.notFound.push(m.provider_key);
         continue;
       }
+      const currentTag = target.tags[m.image_type] ?? null;
       const drifted =
-        target.primaryTag === null
+        currentTag === null
           ? "missing"
-          : m.applied_tag && target.primaryTag !== m.applied_tag
+          : m.applied_tag && currentTag !== m.applied_tag
             ? "changed"
             : null;
       if (!drifted) continue;
@@ -63,7 +64,7 @@ export async function heal(): Promise<HealReport> {
         } else {
           await uploadImageFromUrl(target.itemId, m.image_type, m.source_url);
         }
-        const newTag = await getPrimaryTag(target.itemId);
+        const newTag = await getImageTag(target.itemId, m.image_type);
         setAppliedTag(m.provider_key, m.image_type, newTag);
         addHistory(m.provider_key, m.image_type, "heal", m.source, m.source_url, new Date().toISOString());
         report.healed.push({ providerKey: m.provider_key, name: target.name, reason: drifted });
