@@ -3,6 +3,7 @@ import { config } from "./config.ts";
 import {
   getCollectionMembers,
   getGroups,
+  getSeasonsForZip,
   getSeries,
   getItemProviders,
   getLibrary,
@@ -17,7 +18,7 @@ import { activeSourceNames, getCandidates } from "./sources/index.ts";
 import { searchTmdb } from "./sources/tmdb.ts";
 import { addHistory, getManaged, setAppliedTag, setLock, upsertManaged } from "./db.ts";
 import { applyBytesToItem } from "./applyPoster.ts";
-import { applyPosterZip } from "./posterZip.ts";
+import { applyPosterZip, applySeriesZip } from "./posterZip.ts";
 import { heal } from "./healer.ts";
 
 const app = new Hono();
@@ -126,6 +127,18 @@ app.post("/api/collections/:id/apply-zip", async (c) => {
   const members = await getCollectionMembers(c.req.param("id"));
   const zipBytes = new Uint8Array(await file.arrayBuffer());
   const report = await applyPosterZip(c.req.param("id"), members, zipBytes);
+  return c.json({ ok: true, ...report });
+});
+
+// Applique un set ThePosterDB (zip) à une série + ses saisons (match par numéro).
+app.post("/api/series/:id/apply-zip", async (c) => {
+  const form = await c.req.parseBody();
+  const file = form["file"];
+  if (!(file instanceof File)) return c.json({ error: "Zip 'file' manquant" }, 400);
+
+  const seasons = await getSeasonsForZip(c.req.param("id"));
+  const zipBytes = new Uint8Array(await file.arrayBuffer());
+  const report = await applySeriesZip(c.req.param("id"), seasons, zipBytes);
   return c.json({ ok: true, ...report });
 });
 

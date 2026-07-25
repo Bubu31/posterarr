@@ -42,6 +42,7 @@ bun dev                # http://localhost:3939
 | `POST /api/heal` | Passe de guérison : ré-applique les posters verrouillés disparus ou remplacés. |
 | `GET /api/collections` | Collections (BoxSet) avec leurs films membres, pour la vue liste. |
 | `POST /api/collections/:id/apply-zip` | Applique un set ThePosterDB (zip) : poster de collection + posters des films, matchés par année. |
+| `POST /api/series/:id/apply-zip` | Applique un set ThePosterDB (zip) : poster de série + posters des saisons, matchés par numéro (Specials = Season 0). |
 | `GET /` | Front : grille + vue détail (candidats, appliquer, verrouiller). |
 
 ## Feuille de route

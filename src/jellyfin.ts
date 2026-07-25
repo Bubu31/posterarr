@@ -378,6 +378,18 @@ export async function getSeries(): Promise<CollectionItem[]> {
   }));
 }
 
+/** Saisons d'une série avec leur numéro (IndexNumber), pour l'import de set zip. */
+export async function getSeasonsForZip(
+  seriesId: string,
+): Promise<Array<{ id: string; indexNumber: number | null }>> {
+  const uid = await getUserId();
+  const data = await jf<{ Items: Array<{ Id: string; IndexNumber?: number }> }>(
+    `/Users/${uid}/Items`,
+    { parentId: seriesId, IncludeItemTypes: "Season" },
+  );
+  return data.Items.map((s) => ({ id: s.Id, indexNumber: s.IndexNumber ?? null }));
+}
+
 /** Films membres d'une collection (BoxSet). */
 export async function getCollectionMembers(boxsetId: string) {
   const uid = await getUserId();

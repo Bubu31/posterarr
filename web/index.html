@@ -316,10 +316,14 @@
 
     function renderZip(item) {
       const el = document.getElementById("d-zip");
-      if (item.type !== "BoxSet") { el.innerHTML = ""; return; }
+      if (item.type !== "BoxSet" && item.type !== "Series") { el.innerHTML = ""; return; }
+      const isSeries = item.type === "Series";
+      const label = isSeries
+        ? "📦 Glisse un zip ThePosterDB (set de série) — applique le poster de série + ceux des saisons (match par numéro)"
+        : "📦 Glisse un zip ThePosterDB (set de collection) — applique le poster de collection + ceux des films (match par année)";
       el.innerHTML = `
-        <div id="zipzone" style="border:1px dashed #2a2d36;border-radius:8px;padding:.7rem;text-align:center;color:var(--muted);cursor:pointer;font-size:.85rem">
-          📦 Glisse un zip ThePosterDB (set de collection) — applique le poster de collection + ceux des films (match par année)
+        <div id="zipzone" data-series="${isSeries}" style="border:1px dashed #2a2d36;border-radius:8px;padding:.7rem;text-align:center;color:var(--muted);cursor:pointer;font-size:.85rem">
+          ${label}
           <input type="file" id="zip-input" accept=".zip" style="display:none" />
         </div>`;
       const zz = document.getElementById("zipzone");
@@ -333,10 +337,12 @@
 
     async function uploadZip(file) {
       if (!file || !current) return;
+      const isSeries = document.getElementById("zipzone")?.dataset.series === "true";
       const fd = new FormData();
       fd.append("file", file);
       document.getElementById("d-zip").innerHTML = '<span class="sub">Application du set…</span>';
-      const r = await fetch(`/api/collections/${current.id}/apply-zip`, { method: "POST", body: fd });
+      const endpoint = isSeries ? `/api/series/${current.id}/apply-zip` : `/api/collections/${current.id}/apply-zip`;
+      const r = await fetch(endpoint, { method: "POST", body: fd });
       const d = await r.json();
       if (!d.ok) { alert("Échec : " + (d.error || "inconnu")); return; }
       const lines = d.applied.map(a => `  · ${a.target} ← ${a.file}`).join("\n");
