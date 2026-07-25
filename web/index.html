@@ -51,6 +51,7 @@
     <h1>posterarr</h1>
     <span class="stats" id="stats">chargement…</span>
     <button id="heal-btn" onclick="runHeal()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">🩹 Guérir</button>
+    <button id="snapshot-btn" onclick="runSnapshot()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">📸 Snapshot</button>
     <input id="search" placeholder="Rechercher…" />
   </header>
   <div class="filters" id="filters"></div>
@@ -295,6 +296,25 @@
         ].filter(Boolean);
         alert("Guérison terminée\n\n" + lines.join("\n"));
         if (d.healed.length) load();
+      } finally { btn.textContent = old; btn.disabled = false; }
+    }
+
+    async function runSnapshot() {
+      const btn = document.getElementById("snapshot-btn");
+      const old = btn.textContent;
+      btn.textContent = "📸 Snapshot…"; btn.disabled = true;
+      try {
+        const r = await fetch("/api/snapshot", { method: "POST" });
+        const d = await r.json();
+        if (d.error) { alert("Snapshot : " + d.error); return; }
+        alert("Snapshot terminé\n\n" + [
+          `${d.scanned} item(s) scanné(s)`,
+          `${d.recorded} enregistré(s)`,
+          `${d.skippedExisting} déjà géré(s)`,
+          `${d.skippedNoImage} sans image`,
+          `${d.skippedNoKey} sans id stable (collections/saisons)`,
+        ].join("\n"));
+        if (d.recorded) load();
       } finally { btn.textContent = old; btn.disabled = false; }
     }
 

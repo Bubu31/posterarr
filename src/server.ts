@@ -26,6 +26,7 @@ import { addHistory, getManaged, setAppliedTag, setLock, upsertManaged } from ".
 import { applyBytesToItem } from "./applyPoster.ts";
 import { applyPosterZip, applySeriesZip } from "./posterZip.ts";
 import { heal } from "./healer.ts";
+import { snapshot } from "./snapshot.ts";
 
 const app = new Hono();
 
@@ -194,6 +195,12 @@ app.post("/api/heal", async (c) => {
   } catch (e) {
     return c.json({ error: String(e) }, 409);
   }
+});
+
+// Enregistre l'état courant des posters (films/séries) en DB, non verrouillé.
+app.post("/api/snapshot", async (c) => {
+  const report = await snapshot();
+  return c.json({ ok: true, ...report });
 });
 
 // Front statique (une page pour l'instant, pas de build)
