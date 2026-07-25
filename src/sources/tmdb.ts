@@ -1,17 +1,27 @@
 import { config } from "../config.ts";
-import type { MediaRef, PosterCandidate, PosterSource } from "./types.ts";
+import type { ImageCandidate, ImageSource, ImageType, MediaRef } from "./types.ts";
 
 const IMG = "https://image.tmdb.org/t/p";
 
-interface TmdbImages {
-  posters: Array<{
-    file_path: string;
-    iso_639_1: string | null;
-    vote_average: number;
-    width: number;
-    height: number;
-  }>;
+interface TmdbImage {
+  file_path: string;
+  iso_639_1: string | null;
+  vote_average: number;
+  width: number;
+  height: number;
 }
+interface TmdbImages {
+  posters?: TmdbImage[];
+  backdrops?: TmdbImage[];
+  logos?: TmdbImage[];
+}
+
+// Type Jellyfin -> champ de la réponse TMDB /images. Thumb/Banner : TMDB n'en a pas.
+const TMDB_FIELD: Partial<Record<ImageType, keyof TmdbImages>> = {
+  Primary: "posters",
+  Backdrop: "backdrops",
+  Logo: "logos",
+};
 
 export interface TmdbMatch {
   tmdbId: string;
@@ -62,7 +72,7 @@ export async function searchTmdb(
   }
 }
 
-export const tmdbSource: PosterSource = {
+export const tmdbSource: ImageSource = {
   name: "tmdb",
 
   supports(ref: MediaRef): boolean {
@@ -71,8 +81,10 @@ export const tmdbSource: PosterSource = {
     return ref.type === "Movie" || ref.type === "Series" || ref.type === "BoxSet";
   },
 
-  async getPosters(ref: MediaRef): Promise<PosterCandidate[]> {
-    // Saison : endpoint dédié /tv/{sérieTmdb}/season/{n}/images
+  async getImages(ref: MediaRef, imageType: ImageType): Promise<ImageCandidate[]> {
+    const field = TMDB_FIELD[imageType];
+    if (!field) return []; // Thumb/Banner : pas de source TMDB
+    // Saison : endpoint dédié /tv/{sérieTmdb}/season/{n}/images (posters uniquement)
     const path =
       ref.type === "Season"
         ? `tv/${ref.tmdbId}/season/${ref.seasonNumber}`
@@ -86,7 +98,7 @@ export const tmdbSource: PosterSource = {
       const res = await fetch(url);
       if (!res.ok) return [];
       const data = (await res.json()) as TmdbImages;
-      return data.posters.map((p) => ({
+      return (data[field] ?? []).map((p) => ({
         source: "tmdb",
         url: `${IMG}/original${p.file_path}`,
         thumbUrl: `${IMG}/w300${p.file_path}`,

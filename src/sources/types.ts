@@ -1,7 +1,12 @@
-// Contrat commun à toutes les sources de posters. Ajouter une source = implémenter
-// PosterSource et l'enregistrer dans index.ts — aucune autre modification.
+// Contrat commun à toutes les sources d'images. Ajouter une source = implémenter
+// ImageSource et l'enregistrer dans index.ts — aucune autre modification.
 
 import type { MediaType } from "../jellyfin.ts";
+
+/** Types d'images Jellyfin gérés par posterarr. */
+export type ImageType = "Primary" | "Backdrop" | "Logo" | "Thumb" | "Banner";
+
+export const IMAGE_TYPES: ImageType[] = ["Primary", "Backdrop", "Logo", "Thumb", "Banner"];
 
 /** Identifiants stables d'un média, résolus depuis Jellyfin (ProviderIds). */
 export interface MediaRef {
@@ -13,7 +18,7 @@ export interface MediaRef {
   seasonNumber?: number | null;
 }
 
-export interface PosterCandidate {
+export interface ImageCandidate {
   source: string;
   /** Image pleine résolution à appliquer. */
   url: string;
@@ -27,10 +32,13 @@ export interface PosterCandidate {
   popularity: number | null;
 }
 
-export interface PosterSource {
+export interface ImageSource {
   readonly name: string;
   /** false = source non configurée (clé manquante) ou média non pris en charge. */
   supports(ref: MediaRef): boolean;
-  /** Renvoie les posters candidats. Ne doit jamais throw : renvoyer [] en cas d'échec. */
-  getPosters(ref: MediaRef): Promise<PosterCandidate[]>;
+  /**
+   * Renvoie les candidats pour un type d'image (Primary, Backdrop, Logo…).
+   * Ne doit jamais throw : renvoyer [] en cas d'échec ou de type non pris en charge.
+   */
+  getImages(ref: MediaRef, imageType: ImageType): Promise<ImageCandidate[]>;
 }
