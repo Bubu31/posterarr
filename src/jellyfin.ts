@@ -60,6 +60,21 @@ interface JfItemsResponse {
   TotalRecordCount: number;
 }
 
+/**
+ * Maps du tag appliqué par posterarr (le listing bulk Jellyfin peut être périmé
+ * après un refresh). Le tag managé prime : c'est le poster que posterarr gère.
+ */
+function buildAppliedMaps(): { byItemId: Map<string, string>; byKey: Map<string, string> } {
+  const byItemId = new Map<string, string>();
+  const byKey = new Map<string, string>();
+  for (const m of listManaged()) {
+    if (m.image_type !== "Primary" || !m.applied_tag) continue;
+    byKey.set(m.provider_key, m.applied_tag);
+    if (m.jellyfin_item_id) byItemId.set(m.jellyfin_item_id, m.applied_tag);
+  }
+  return { byItemId, byKey };
+}
+
 function providerKeyFromIds(ids: Record<string, string> | undefined): string | null {
   const p = new Map(Object.entries(ids ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   if (p.get("tmdb")) return `tmdb:${p.get("tmdb")}`;
@@ -127,26 +142,17 @@ export async function getLibrary(): Promise<LibraryItem[]> {
     getLibraryLocations(),
     getCollectionMemberIds(),
   ]);
-  // Fallback : le listing bulk Jellyfin renvoie parfois ImageTags (et ProviderIds)
-  // vides après un refresh de métadonnées, alors que posterarr a bien appliqué un
-  // poster. On récupère alors le tag depuis notre DB. On indexe par provider_key ET
-  // par jellyfin_item_id (car le bulk peut aussi perdre les ProviderIds).
-  const appliedByKey = new Map<string, string>();
-  const appliedByItemId = new Map<string, string>();
-  for (const m of listManaged()) {
-    if (m.image_type !== "Primary" || !m.applied_tag) continue;
-    appliedByKey.set(m.provider_key, m.applied_tag);
-    if (m.jellyfin_item_id) appliedByItemId.set(m.jellyfin_item_id, m.applied_tag);
-  }
+  // Le tag managé prime sur le bulk (qui peut être périmé après un refresh).
+  const maps = buildAppliedMaps();
   return data.Items.filter((it) => {
     if (!it.Path) return true; // pas de chemin (collections…) : on garde
     return locations.some((loc) => it.Path!.startsWith(loc));
   }).map((it) => {
     const key = providerKeyFromIds(it.ProviderIds);
     const tag =
+      maps.byItemId.get(it.Id) ??
+      (key ? maps.byKey.get(key) : undefined) ??
       it.ImageTags?.Primary ??
-      (key ? appliedByKey.get(key) : undefined) ??
-      appliedByItemId.get(it.Id) ??
       null;
     return {
       id: it.Id,
@@ -379,6 +385,9 @@ export async function getSeries(): Promise<CollectionItem[]> {
   const seasons = seasonsData.Items.slice().sort(
     (a, b) => (a.IndexNumber ?? 999) - (b.IndexNumber ?? 999),
   );
+  const maps = buildAppliedMaps();
+  const tagFor = (id: string, bulk: string | undefined) => maps.byItemId.get(id) ?? bulk ?? null;
+
   const bySeries = new Map<string, CollectionItem["members"]>();
   for (const s of seasons) {
     const arr = bySeries.get(s.SeriesId) ?? [];
@@ -386,7 +395,7 @@ export async function getSeries(): Promise<CollectionItem[]> {
       id: s.Id,
       name: s.Name,
       year: s.ProductionYear ?? null,
-      posterUrl: posterUrl(s.Id, s.ImageTags?.Primary ?? null),
+      posterUrl: posterUrl(s.Id, tagFor(s.Id, s.ImageTags?.Primary)),
     });
     bySeries.set(s.SeriesId, arr);
   }
@@ -397,7 +406,7 @@ export async function getSeries(): Promise<CollectionItem[]> {
     id: p.Id,
     name: p.Name,
     year: p.ProductionYear ?? null,
-    posterUrl: posterUrl(p.Id, p.ImageTags?.Primary ?? null),
+    posterUrl: posterUrl(p.Id, tagFor(p.Id, p.ImageTags?.Primary)),
     members: bySeries.get(p.Id) ?? [],
   }));
 }
@@ -414,8 +423,8 @@ export async function getSeasonsForZip(
   return data.Items.map((s) => ({ id: s.Id, indexNumber: s.IndexNumber ?? null }));
 }
 
-/** Films membres d'une collection (BoxSet). */
-export async function getCollectionMembers(boxsetId: string) {
+/** Films membres d'une collection (BoxSet). `applied` = fallback tag managé par item id. */
+export async function getCollectionMembers(boxsetId: string, applied?: Map<string, string>) {
   const uid = await getUserId();
   const data = await jf<{ Items: JfMember[] }>(`/Users/${uid}/Items`, {
     parentId: boxsetId,
@@ -428,7 +437,7 @@ export async function getCollectionMembers(boxsetId: string) {
     id: m.Id,
     name: m.Name,
     year: m.ProductionYear ?? null,
-    posterUrl: posterUrl(m.Id, m.ImageTags?.Primary ?? null),
+    posterUrl: posterUrl(m.Id, applied?.get(m.Id) ?? m.ImageTags?.Primary ?? null),
   }));
 }
 
@@ -472,6 +481,7 @@ export async function getGroups(includeItemType: "BoxSet" | "Series"): Promise<C
     (p) => !p.Path || locations.some((loc) => p.Path!.startsWith(loc)),
   );
 
+  const maps = buildAppliedMaps();
   // Concurrence limitée (jusqu'à ~345 séries → ne pas noyer Jellyfin).
   const out: CollectionItem[] = new Array(parents.length);
   const CONCURRENCY = 16;
@@ -480,12 +490,12 @@ export async function getGroups(includeItemType: "BoxSet" | "Series"): Promise<C
     while (i < parents.length) {
       const idx = i++;
       const p = parents[idx];
-      const members = await getCollectionMembers(p.Id).catch(() => []);
+      const members = await getCollectionMembers(p.Id, maps.byItemId).catch(() => []);
       out[idx] = {
         id: p.Id,
         name: p.Name,
         year: p.ProductionYear ?? null,
-        posterUrl: posterUrl(p.Id, p.ImageTags?.Primary ?? null),
+        posterUrl: posterUrl(p.Id, maps.byItemId.get(p.Id) ?? p.ImageTags?.Primary ?? null),
         members,
       };
     }
