@@ -26,7 +26,7 @@ export async function applyBytesToItem(
   await uploadImageBytes(providers.id, imageType, bytes, contentType);
 
   const now = new Date().toISOString();
-  upsertManaged(key, imageType, source, marker, true, now);
+  upsertManaged(key, imageType, source, marker, true, now, providers.id);
   setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
   addHistory(key, imageType, "apply", source, marker, now);
   invalidateGroupsCache();

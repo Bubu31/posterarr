@@ -27,15 +27,20 @@ export async function heal(): Promise<HealReport> {
   const report: HealReport = { checked: 0, healed: [], notFound: [], errors: [] };
   try {
     const locked = listLocked();
-    // Index provider_key -> cible Jellyfin (une seule requête bibliothèque).
+    // Index provider_key -> cible + itemId -> cible (fallback si le bulk a perdu
+    // les ProviderIds de l'item, cf. lag d'index Jellyfin après un refresh).
     const index = new Map<string, Awaited<ReturnType<typeof getLibraryTargets>>[number]>();
+    const byItemId = new Map<string, Awaited<ReturnType<typeof getLibraryTargets>>[number]>();
     for (const t of await getLibraryTargets()) {
+      byItemId.set(t.itemId, t);
       for (const k of t.providerKeys) index.set(k, t);
     }
 
     for (const m of locked) {
       report.checked++;
-      const target = index.get(m.provider_key);
+      const target =
+        index.get(m.provider_key) ??
+        (m.jellyfin_item_id ? byItemId.get(m.jellyfin_item_id) : undefined);
       if (!target) {
         report.notFound.push(m.provider_key);
         continue;

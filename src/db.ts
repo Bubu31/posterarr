@@ -17,14 +17,18 @@ db.run(`
     locked       INTEGER NOT NULL DEFAULT 0,
     applied_at   TEXT NOT NULL,
     applied_tag  TEXT,                    -- tag Primary Jellyfin au moment de l'apply (détection de dérive)
+    jellyfin_item_id TEXT,                -- id Jellyfin courant (fallback affichage/guérison si l'index bulk est périmé)
     PRIMARY KEY (provider_key, image_type)
   )
 `);
 
-// Migration idempotente pour les bases créées avant applied_tag.
+// Migrations idempotentes.
 const cols = db.query("PRAGMA table_info(managed_image)").all() as Array<{ name: string }>;
 if (!cols.some((c) => c.name === "applied_tag")) {
   db.run("ALTER TABLE managed_image ADD COLUMN applied_tag TEXT");
+}
+if (!cols.some((c) => c.name === "jellyfin_item_id")) {
+  db.run("ALTER TABLE managed_image ADD COLUMN jellyfin_item_id TEXT");
 }
 
 db.run(`
@@ -47,6 +51,7 @@ export interface ManagedImage {
   locked: number;
   applied_at: string;
   applied_tag: string | null;
+  jellyfin_item_id: string | null;
 }
 
 /** Items verrouillés — cible de la passe de guérison. */
@@ -80,16 +85,18 @@ export function upsertManaged(
   sourceUrl: string | null,
   locked: boolean,
   at: string,
+  jellyfinItemId: string | null = null,
 ): void {
   db.run(
-    `INSERT INTO managed_image (provider_key, image_type, source, source_url, locked, applied_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO managed_image (provider_key, image_type, source, source_url, locked, applied_at, jellyfin_item_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(provider_key, image_type) DO UPDATE SET
        source = excluded.source,
        source_url = excluded.source_url,
        locked = excluded.locked,
-       applied_at = excluded.applied_at`,
-    [providerKey, imageType, source, sourceUrl, locked ? 1 : 0, at],
+       applied_at = excluded.applied_at,
+       jellyfin_item_id = excluded.jellyfin_item_id`,
+    [providerKey, imageType, source, sourceUrl, locked ? 1 : 0, at, jellyfinItemId],
   );
 }
 

@@ -127,19 +127,27 @@ export async function getLibrary(): Promise<LibraryItem[]> {
     getLibraryLocations(),
     getCollectionMemberIds(),
   ]);
-  // Fallback : le listing bulk Jellyfin renvoie parfois ImageTags vide après un
-  // refresh de métadonnées, alors que posterarr a bien appliqué un poster. On
-  // récupère alors le tag depuis notre DB (applied_tag) pour l'afficher quand même.
+  // Fallback : le listing bulk Jellyfin renvoie parfois ImageTags (et ProviderIds)
+  // vides après un refresh de métadonnées, alors que posterarr a bien appliqué un
+  // poster. On récupère alors le tag depuis notre DB. On indexe par provider_key ET
+  // par jellyfin_item_id (car le bulk peut aussi perdre les ProviderIds).
   const appliedByKey = new Map<string, string>();
+  const appliedByItemId = new Map<string, string>();
   for (const m of listManaged()) {
-    if (m.image_type === "Primary" && m.applied_tag) appliedByKey.set(m.provider_key, m.applied_tag);
+    if (m.image_type !== "Primary" || !m.applied_tag) continue;
+    appliedByKey.set(m.provider_key, m.applied_tag);
+    if (m.jellyfin_item_id) appliedByItemId.set(m.jellyfin_item_id, m.applied_tag);
   }
   return data.Items.filter((it) => {
     if (!it.Path) return true; // pas de chemin (collections…) : on garde
     return locations.some((loc) => it.Path!.startsWith(loc));
   }).map((it) => {
     const key = providerKeyFromIds(it.ProviderIds);
-    const tag = it.ImageTags?.Primary ?? (key ? appliedByKey.get(key) ?? null : null);
+    const tag =
+      it.ImageTags?.Primary ??
+      (key ? appliedByKey.get(key) : undefined) ??
+      appliedByItemId.get(it.Id) ??
+      null;
     return {
       id: it.Id,
       name: it.Name,
@@ -294,10 +302,11 @@ export async function setTmdbId(itemId: string, tmdbId: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`UpdateItem -> ${res.status} ${res.statusText}`);
 
-  // Rafraîchit les métadonnées (titre/année) sans toucher aux images.
+  // Rafraîchit les métadonnées (titre/année) sans remplacer tout (replaceAllMetadata=true
+  // corrompt parfois l'index bulk de l'item) ni toucher aux images.
   await fetch(
     `${config.jellyfinUrl}/Items/${itemId}/Refresh` +
-      `?metadataRefreshMode=FullRefresh&replaceAllMetadata=true` +
+      `?metadataRefreshMode=FullRefresh&replaceAllMetadata=false` +
       `&imageRefreshMode=Default&replaceAllImages=false`,
     { method: "POST", headers: { "X-Emby-Token": config.jellyfinApiKey } },
   );

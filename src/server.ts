@@ -87,7 +87,7 @@ app.post("/api/items/:id/apply", async (c) => {
   await uploadImageFromUrl(providers.id, imageType, body.url);
 
   const now = new Date().toISOString();
-  upsertManaged(key, imageType, body.source, body.url, lock, now);
+  upsertManaged(key, imageType, body.source, body.url, lock, now, providers.id);
   // Mémorise le tag résultant pour détecter une dérive future (guérison).
   setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
   addHistory(key, imageType, "apply", body.source, body.url, now);
