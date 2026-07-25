@@ -74,7 +74,7 @@
   </div>
 
   <script>
-    const TYPES = { Movie: "Films", Series: "Séries", BoxSet: "Collections" };
+    const TYPES = { Movie: "Films", Series: "Séries", BoxSet: "Collections", missing: "Sans poster" };
     let items = [], filter = "Movie", q = "";
 
     let pendingScroll = null; // position de scroll à restaurer après un re-render async
@@ -116,12 +116,13 @@
       }
       grid.style.display = "grid";
       collist.style.display = "none";
-      const list = items.filter(i =>
-        i.type === filter &&
+      const list = items.filter(i => {
+        if (q && !i.name.toLowerCase().includes(q)) return false;
+        // onglet Sans poster : tout ce qui n'a pas de visuel, tous types confondus
+        if (filter === "missing") return !i.posterUrl;
         // onglet Films : masquer les films déjà dans une collection
-        !(filter === "Movie" && i.inCollection) &&
-        (!q || i.name.toLowerCase().includes(q))
-      );
+        return i.type === filter && !(filter === "Movie" && i.inCollection);
+      });
       grid.innerHTML = "";
       for (const i of list.slice(0, 300)) {
         const card = document.createElement("div");
