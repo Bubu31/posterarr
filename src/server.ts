@@ -204,4 +204,9 @@ if (intervalMin > 0) {
 
 console.log(`posterarr en écoute sur http://localhost:${config.port}`);
 
-export default { port: config.port, fetch: app.fetch };
+export default {
+  port: config.port,
+  fetch: app.fetch,
+  // Les sets ThePosterDB de longues séries peuvent être volumineux (>128 Mo par défaut).
+  maxRequestBodySize: 512 * 1024 * 1024,
+};
