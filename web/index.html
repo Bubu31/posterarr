@@ -77,7 +77,10 @@
     const TYPES = { Movie: "Films", Series: "Séries", BoxSet: "Collections" };
     let items = [], filter = "Movie", q = "";
 
+    let pendingScroll = null; // position de scroll à restaurer après un re-render async
+
     async function load() {
+      pendingScroll = window.scrollY; // préserve la position (le re-render ne remonte pas en haut)
       for (const k in groupCache) delete groupCache[k]; // invalide le cache (un poster a pu changer)
       const r = await fetch("/api/library");
       const d = await r.json();
@@ -138,6 +141,11 @@
         note.textContent = `… ${list.length - 300} de plus (pagination à venir)`;
         grid.appendChild(note);
       }
+      restoreScroll();
+    }
+
+    function restoreScroll() {
+      if (pendingScroll != null) { window.scrollTo(0, pendingScroll); pendingScroll = null; }
     }
 
     const groupCache = {};
@@ -169,6 +177,7 @@
         el.appendChild(row);
       }
       if (!list.length) el.innerHTML = '<div style="color:var(--muted)">Aucun résultat.</div>';
+      restoreScroll();
     }
 
     let current = null; // { id, managed }
