@@ -62,6 +62,7 @@
       <button class="close" onclick="closeDetail()">Fermer</button>
       <h2 id="d-name"></h2>
       <div class="sub" id="d-sub"></div>
+      <div id="d-tabs" style="display:flex;gap:.4rem;margin-top:.7rem;flex-wrap:wrap"></div>
       <div id="d-identify" style="margin-top:.6rem"></div>
       <div id="d-zip" style="margin-top:.6rem"></div>
       <div id="d-lock" style="margin-top:.6rem"></div>
@@ -181,18 +182,39 @@
       restoreScroll();
     }
 
-    let current = null; // { id, managed }
+    let current = null; // { id, managed, imageType }
 
-    async function openDetail(id) {
+    const IMAGE_TABS = [
+      ["Primary", "Poster"], ["Backdrop", "Fond"], ["Logo", "Logo"],
+      ["Thumb", "Vignette"], ["Banner", "Bannière"],
+    ];
+
+    function renderTabs() {
+      const el = document.getElementById("d-tabs");
+      el.innerHTML = IMAGE_TABS.map(([type, label]) => {
+        const active = current.imageType === type;
+        return `<button onclick="switchImageType('${type}')" class="close" style="float:none;${active
+          ? "background:var(--accent);color:#fff"
+          : ""}">${label}</button>`;
+      }).join("");
+    }
+
+    function switchImageType(type) {
+      if (current && current.imageType === type) return;
+      openDetail(current.id, type);
+    }
+
+    async function openDetail(id, imageType = "Primary") {
       const ov = document.getElementById("overlay");
       ov.classList.add("open");
       document.getElementById("d-name").textContent = "Chargement des candidats…";
       document.getElementById("d-sub").textContent = "";
       document.getElementById("d-lock").innerHTML = "";
       document.getElementById("cand-grid").innerHTML = "";
-      const r = await fetch(`/api/items/${id}/candidates`);
+      const r = await fetch(`/api/items/${id}/candidates?imageType=${imageType}`);
       const d = await r.json();
-      current = { id, managed: d.managed };
+      current = { id, managed: d.managed, imageType };
+      renderTabs();
       document.getElementById("d-name").textContent = d.item.name;
       document.getElementById("d-sub").textContent =
         `${d.count} candidats · sources : ${d.sources.join(", ") || "aucune"} · tmdb ${d.item.tmdbId ?? "—"}`;
@@ -201,11 +223,19 @@
       renderLock();
       const g = document.getElementById("cand-grid");
       g.innerHTML = "";
+      // Le poster est en portrait ; les autres types sont paysage/transparents.
+      const isPrimary = current.imageType === "Primary";
+      const ratio = isPrimary ? "2/3" : current.imageType === "Banner" ? "5.4/1" : "16/9";
+      const fit = isPrimary ? "cover" : "contain";
+      g.style.gridTemplateColumns = isPrimary ? "" : "repeat(auto-fill,minmax(220px,1fr))";
+      if (!d.candidates.length) {
+        g.innerHTML = '<div class="sub">Aucun candidat pour ce type d\'image.</div>';
+      }
       for (const c of d.candidates.slice(0, 60)) {
         const el = document.createElement("div");
         el.className = "cand";
         const applied = current.managed && current.managed.source_url === c.url;
-        el.innerHTML = `<img loading="lazy" src="${c.thumbUrl}" />
+        el.innerHTML = `<img loading="lazy" src="${c.thumbUrl}" style="aspect-ratio:${ratio};object-fit:${fit}" />
           <span class="tag">${c.source}</span>
           ${c.lang ? `<span class="tag lang">${c.lang}</span>` : ""}
           ${applied ? '<span class="tag" style="bottom:4px;top:auto;background:#1e7a3a">appliqué</span>' : ""}`;
@@ -231,10 +261,10 @@
       document.getElementById("d-lock").innerHTML = '<span class="sub">Application…</span>';
       const r = await fetch(`/api/items/${current.id}/apply`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: c.url, source: c.source }),
+        body: JSON.stringify({ url: c.url, source: c.source, imageType: current.imageType }),
       });
       const d = await r.json();
-      if (d.ok) { current.managed = d.managed; openDetail(current.id); load(); }
+      if (d.ok) { current.managed = d.managed; openDetail(current.id, current.imageType); load(); }
       else alert("Échec : " + (d.error || "inconnu"));
     }
 
@@ -242,7 +272,7 @@
       const locked = !(current.managed && current.managed.locked === 1);
       const r = await fetch(`/api/items/${current.id}/lock`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locked }),
+        body: JSON.stringify({ locked, imageType: current.imageType }),
       });
       const d = await r.json();
       if (d.ok) { current.managed = d.managed; renderLock(); }
@@ -320,7 +350,7 @@
         body: JSON.stringify({ tmdbId: m.tmdbId }),
       });
       const d = await r.json();
-      if (d.ok) { setTimeout(() => { openDetail(current.id); load(); }, 1500); }
+      if (d.ok) { setTimeout(() => { openDetail(current.id, current.imageType); load(); }, 1500); }
       else alert("Échec : " + (d.error || "inconnu"));
     }
 
@@ -358,17 +388,18 @@
       const lines = d.applied.map(a => `  · ${a.target} ← ${a.file}`).join("\n");
       alert(`Set appliqué : ${d.applied.length} poster(s)\n${lines}` +
         (d.unmatched.length ? `\n\nNon matchés :\n${d.unmatched.map(f => "  · " + f).join("\n")}` : ""));
-      openDetail(current.id); load();
+      openDetail(current.id, current.imageType); load();
     }
 
     async function uploadCustom(file) {
       if (!file || !current) return;
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("imageType", current.imageType);
       document.getElementById("d-lock").innerHTML = '<span class="sub">Upload custom…</span>';
       const r = await fetch(`/api/items/${current.id}/apply-file`, { method: "POST", body: fd });
       const d = await r.json();
-      if (d.ok) { current.managed = d.managed; openDetail(current.id); load(); }
+      if (d.ok) { current.managed = d.managed; openDetail(current.id, current.imageType); load(); }
       else alert("Échec upload : " + (d.error || "inconnu"));
     }
     (function wireDropzone() {
