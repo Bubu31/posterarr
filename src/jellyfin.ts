@@ -300,6 +300,57 @@ interface JfMember {
   ImageTags?: { Primary?: string };
 }
 
+/**
+ * Séries avec leurs saisons — optimisé en 2 requêtes (les saisons portent leur
+ * SeriesId, donc on récupère toutes les saisons d'un coup et on les regroupe,
+ * au lieu d'une requête par série).
+ */
+export async function getSeries(): Promise<CollectionItem[]> {
+  const [seriesData, locations, seasonsData] = await Promise.all([
+    jf<{ Items: Array<JfMember & { Path?: string }> }>("/Items", {
+      Recursive: "true",
+      IncludeItemTypes: "Series",
+      Fields: "ProductionYear,Path",
+      SortBy: "SortName",
+      SortOrder: "Ascending",
+      EnableImageTypes: "Primary",
+    }),
+    getLibraryLocations(),
+    jf<{ Items: Array<JfMember & { SeriesId: string; IndexNumber?: number }> }>("/Items", {
+      Recursive: "true",
+      IncludeItemTypes: "Season",
+      Fields: "ProductionYear",
+      EnableImageTypes: "Primary",
+    }),
+  ]);
+
+  // Tri par numéro de saison (Saison 2 avant Saison 10) avant regroupement.
+  const seasons = seasonsData.Items.slice().sort(
+    (a, b) => (a.IndexNumber ?? 999) - (b.IndexNumber ?? 999),
+  );
+  const bySeries = new Map<string, CollectionItem["members"]>();
+  for (const s of seasons) {
+    const arr = bySeries.get(s.SeriesId) ?? [];
+    arr.push({
+      id: s.Id,
+      name: s.Name,
+      year: s.ProductionYear ?? null,
+      posterUrl: posterUrl(s.Id, s.ImageTags?.Primary ?? null),
+    });
+    bySeries.set(s.SeriesId, arr);
+  }
+
+  return seriesData.Items.filter(
+    (p) => !p.Path || locations.some((loc) => p.Path!.startsWith(loc)),
+  ).map((p) => ({
+    id: p.Id,
+    name: p.Name,
+    year: p.ProductionYear ?? null,
+    posterUrl: posterUrl(p.Id, p.ImageTags?.Primary ?? null),
+    members: bySeries.get(p.Id) ?? [],
+  }));
+}
+
 /** Films membres d'une collection (BoxSet). */
 export async function getCollectionMembers(boxsetId: string) {
   const uid = await getUserId();

@@ -3,6 +3,7 @@ import { config } from "./config.ts";
 import {
   getCollectionMembers,
   getGroups,
+  getSeries,
   getItemProviders,
   getLibrary,
   getPrimaryTag,
@@ -42,7 +43,7 @@ app.get("/api/collections", async (c) => {
 
 // Séries avec leurs saisons (vue liste dédiée, même format que les collections).
 app.get("/api/series", async (c) => {
-  const collections = await getGroups("Series");
+  const collections = await getSeries();
   return c.json({ count: collections.length, collections });
 });
 
