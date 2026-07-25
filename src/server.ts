@@ -57,6 +57,7 @@ app.get("/api/items/:id/candidates", async (c) => {
     tmdbId: providers.tmdbId,
     imdbId: providers.imdbId,
     tvdbId: providers.tvdbId,
+    seasonNumber: providers.seasonNumber,
   };
   const candidates = await getCandidates(ref);
   const key = providerKey(providers);

@@ -4,7 +4,7 @@
 import { config } from "./config.ts";
 import { listManaged } from "./db.ts";
 
-export type MediaType = "Movie" | "Series" | "BoxSet";
+export type MediaType = "Movie" | "Series" | "BoxSet" | "Season";
 
 export interface LibraryItem {
   id: string;
@@ -167,6 +167,17 @@ export interface ItemProviders {
   tmdbId: string | null;
   imdbId: string | null;
   tvdbId: string | null;
+  /** Pour une saison : numéro (IndexNumber). tmdbId/tvdbId sont alors ceux de la série. */
+  seasonNumber: number | null;
+}
+
+function toProviders(ids: Record<string, string> | undefined) {
+  const m = new Map(Object.entries(ids ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  return {
+    tmdbId: m.get("tmdb") ?? null,
+    imdbId: m.get("imdb") ?? null,
+    tvdbId: m.get("tvdb") ?? null,
+  };
 }
 
 /** Résout les identifiants stables (TMDB/IMDb/TVDB) d'un item. */
@@ -177,27 +188,40 @@ export async function getItemProviders(id: string): Promise<ItemProviders> {
     Name: string;
     Type: MediaType;
     ProviderIds?: Record<string, string>;
+    SeriesId?: string;
+    IndexNumber?: number;
   }>(`/Users/${uid}/Items/${id}`);
-  // ProviderIds a des clés à casse variable selon les plugins (Tmdb/TMDB…)
-  const providers = new Map(
-    Object.entries(it.ProviderIds ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
-  );
+
+  // Une saison n'a pas d'id propre : on prend ceux de la série + son numéro.
+  if (it.Type === "Season" && it.SeriesId) {
+    const series = await jf<{ ProviderIds?: Record<string, string> }>(
+      `/Users/${uid}/Items/${it.SeriesId}`,
+    );
+    return {
+      id: it.Id,
+      name: it.Name,
+      type: "Season",
+      ...toProviders(series.ProviderIds),
+      seasonNumber: it.IndexNumber ?? null,
+    };
+  }
+
   return {
     id: it.Id,
     name: it.Name,
     type: it.Type,
-    tmdbId: providers.get("tmdb") ?? null,
-    imdbId: providers.get("imdb") ?? null,
-    tvdbId: providers.get("tvdb") ?? null,
+    ...toProviders(it.ProviderIds),
+    seasonNumber: null,
   };
 }
 
-/** Clé durable pour la DB : préfère TMDB, puis IMDb, puis TVDB. Null si aucun. */
+/** Clé durable pour la DB : préfère TMDB, puis IMDb, puis TVDB. Null si aucun.
+ * Une saison reçoit une clé distincte de sa série (suffixe :s<numéro>). */
 export function providerKey(p: ItemProviders): string | null {
-  if (p.tmdbId) return `tmdb:${p.tmdbId}`;
-  if (p.imdbId) return `imdb:${p.imdbId}`;
-  if (p.tvdbId) return `tvdb:${p.tvdbId}`;
-  return null;
+  const base = p.tmdbId ? `tmdb:${p.tmdbId}` : p.imdbId ? `imdb:${p.imdbId}` : p.tvdbId ? `tvdb:${p.tvdbId}` : null;
+  if (!base) return null;
+  if (p.type === "Season" && p.seasonNumber != null) return `${base}:s${p.seasonNumber}`;
+  return base;
 }
 
 /**
@@ -263,7 +287,7 @@ export async function getLibraryTargets(): Promise<LibraryTarget[]> {
     }>;
   }>("/Items", {
     Recursive: "true",
-    IncludeItemTypes: "Movie,Series,BoxSet",
+    IncludeItemTypes: "Movie,Series,BoxSet,Season",
     Fields: "ProviderIds",
     EnableImageTypes: "Primary",
   });

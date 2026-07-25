@@ -66,15 +66,22 @@ export const tmdbSource: PosterSource = {
   name: "tmdb",
 
   supports(ref: MediaRef): boolean {
-    // BoxSet = collection TMDB (endpoint /collection/{id}/images)
-    return Boolean(config.tmdbApiKey) && ref.tmdbId !== null &&
-      (ref.type === "Movie" || ref.type === "Series" || ref.type === "BoxSet");
+    if (!config.tmdbApiKey || ref.tmdbId === null) return false;
+    if (ref.type === "Season") return ref.seasonNumber != null; // via série + numéro
+    return ref.type === "Movie" || ref.type === "Series" || ref.type === "BoxSet";
   },
 
   async getPosters(ref: MediaRef): Promise<PosterCandidate[]> {
-    const kind =
-      ref.type === "Series" ? "tv" : ref.type === "BoxSet" ? "collection" : "movie";
-    const url = `https://api.themoviedb.org/3/${kind}/${ref.tmdbId}/images?api_key=${config.tmdbApiKey}`;
+    // Saison : endpoint dédié /tv/{sérieTmdb}/season/{n}/images
+    const path =
+      ref.type === "Season"
+        ? `tv/${ref.tmdbId}/season/${ref.seasonNumber}`
+        : ref.type === "Series"
+          ? `tv/${ref.tmdbId}`
+          : ref.type === "BoxSet"
+            ? `collection/${ref.tmdbId}`
+            : `movie/${ref.tmdbId}`;
+    const url = `https://api.themoviedb.org/3/${path}/images?api_key=${config.tmdbApiKey}`;
     try {
       const res = await fetch(url);
       if (!res.ok) return [];
