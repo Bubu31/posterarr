@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { config } from "./config.ts";
 import {
   getCollectionMembers,
-  getCollections,
+  getGroups,
   getItemProviders,
   getLibrary,
   getPrimaryTag,
@@ -36,7 +36,13 @@ app.get("/api/library", async (c) => {
 
 // Collections avec leurs films (vue liste dédiée).
 app.get("/api/collections", async (c) => {
-  const collections = await getCollections();
+  const collections = await getGroups("BoxSet");
+  return c.json({ count: collections.length, collections });
+});
+
+// Séries avec leurs saisons (vue liste dédiée, même format que les collections).
+app.get("/api/series", async (c) => {
+  const collections = await getGroups("Series");
   return c.json({ count: collections.length, collections });
 });
 

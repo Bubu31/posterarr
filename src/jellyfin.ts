@@ -318,32 +318,42 @@ export async function getCollectionMembers(boxsetId: string) {
   }));
 }
 
-/** Toutes les collections avec leurs films (pour la vue liste). */
-export async function getCollections(): Promise<CollectionItem[]> {
-  const data = await jf<{ Items: JfMember[] }>("/Items", {
-    Recursive: "true",
-    IncludeItemTypes: "BoxSet",
-    Fields: "ProductionYear",
-    SortBy: "SortName",
-    SortOrder: "Ascending",
-    EnableImageTypes: "Primary",
-  });
-  const boxsets = data.Items;
+/**
+ * Groupes (parents) avec leurs enfants, pour la vue liste. Fonctionne pour les
+ * collections (BoxSet → films) comme pour les séries (Series → saisons) : dans les
+ * deux cas les enfants se récupèrent via parentId.
+ */
+export async function getGroups(includeItemType: "BoxSet" | "Series"): Promise<CollectionItem[]> {
+  const [data, locations] = await Promise.all([
+    jf<{ Items: Array<JfMember & { Path?: string }> }>("/Items", {
+      Recursive: "true",
+      IncludeItemTypes: includeItemType,
+      Fields: "ProductionYear,Path",
+      SortBy: "SortName",
+      SortOrder: "Ascending",
+      EnableImageTypes: "Primary",
+    }),
+    getLibraryLocations(),
+  ]);
+  // Même filtre que getLibrary : écarte les orphelins (chemin hors bibliothèque).
+  const parents = data.Items.filter(
+    (p) => !p.Path || locations.some((loc) => p.Path!.startsWith(loc)),
+  );
 
-  // Récupère les membres avec une concurrence limitée (186 collections → ne pas noyer Jellyfin).
-  const out: CollectionItem[] = new Array(boxsets.length);
-  const CONCURRENCY = 8;
+  // Concurrence limitée (jusqu'à ~345 séries → ne pas noyer Jellyfin).
+  const out: CollectionItem[] = new Array(parents.length);
+  const CONCURRENCY = 16;
   let i = 0;
   async function worker() {
-    while (i < boxsets.length) {
+    while (i < parents.length) {
       const idx = i++;
-      const bs = boxsets[idx];
-      const members = await getCollectionMembers(bs.Id).catch(() => []);
+      const p = parents[idx];
+      const members = await getCollectionMembers(p.Id).catch(() => []);
       out[idx] = {
-        id: bs.Id,
-        name: bs.Name,
-        year: bs.ProductionYear ?? null,
-        posterUrl: posterUrl(bs.Id, bs.ImageTags?.Primary ?? null),
+        id: p.Id,
+        name: p.Name,
+        year: p.ProductionYear ?? null,
+        posterUrl: posterUrl(p.Id, p.ImageTags?.Primary ?? null),
         members,
       };
     }

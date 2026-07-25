@@ -74,11 +74,11 @@
   </div>
 
   <script>
-    const TYPES = { all: "Tout", Movie: "Films", Series: "Séries", BoxSet: "Collections" };
-    let items = [], filter = "all", q = "";
+    const TYPES = { Movie: "Films", Series: "Séries", BoxSet: "Collections" };
+    let items = [], filter = "Movie", q = "";
 
     async function load() {
-      collections = null; // invalide le cache (un poster a pu changer)
+      for (const k in groupCache) delete groupCache[k]; // invalide le cache (un poster a pu changer)
       const r = await fetch("/api/library");
       const d = await r.json();
       items = d.items;
@@ -100,22 +100,21 @@
       }
     }
 
-    let collections = null;
-
     function render() {
       const grid = document.getElementById("grid");
       const collist = document.getElementById("collist");
       // Vue liste dédiée pour les collections
-      if (filter === "BoxSet") {
+      if (filter === "BoxSet" || filter === "Series") {
         grid.style.display = "none";
         collist.style.display = "block";
-        renderCollections();
+        if (filter === "BoxSet") renderGroups("/api/collections", "film");
+        else renderGroups("/api/series", "saison");
         return;
       }
       grid.style.display = "grid";
       collist.style.display = "none";
       const list = items.filter(i =>
-        (filter === "all" || i.type === filter) &&
+        i.type === filter &&
         // onglet Films : masquer les films déjà dans une collection
         !(filter === "Movie" && i.inCollection) &&
         (!q || i.name.toLowerCase().includes(q))
@@ -141,14 +140,15 @@
       }
     }
 
-    async function renderCollections() {
+    const groupCache = {};
+    async function renderGroups(endpoint, memberLabel) {
       const el = document.getElementById("collist");
-      if (!collections) {
-        el.innerHTML = '<div style="color:var(--muted)">Chargement des collections…</div>';
-        const r = await fetch("/api/collections");
-        collections = (await r.json()).collections;
+      if (!groupCache[endpoint]) {
+        el.innerHTML = '<div style="color:var(--muted)">Chargement…</div>';
+        const r = await fetch(endpoint);
+        groupCache[endpoint] = (await r.json()).collections;
       }
-      const list = collections.filter(c => !q || c.name.toLowerCase().includes(q));
+      const list = groupCache[endpoint].filter(c => !q || c.name.toLowerCase().includes(q));
       el.innerHTML = "";
       for (const c of list) {
         const row = document.createElement("div");
@@ -163,12 +163,12 @@
           </div>`).join("");
         row.innerHTML = `${poster}
           <div class="col-main">
-            <h3>${c.name}${c.year ? ` <span class="sub" style="font-weight:400">${c.year}</span>` : ""} <span class="sub">· ${c.members.length} film(s)</span></h3>
-            <div class="col-members">${members || '<span class="sub">Aucun film</span>'}</div>
+            <h3>${c.name}${c.year ? ` <span class="sub" style="font-weight:400">${c.year}</span>` : ""} <span class="sub">· ${c.members.length} ${memberLabel}(s)</span></h3>
+            <div class="col-members">${members || `<span class="sub">Aucun ${memberLabel}</span>`}</div>
           </div>`;
         el.appendChild(row);
       }
-      if (!list.length) el.innerHTML = '<div style="color:var(--muted)">Aucune collection.</div>';
+      if (!list.length) el.innerHTML = '<div style="color:var(--muted)">Aucun résultat.</div>';
     }
 
     let current = null; // { id, managed }
