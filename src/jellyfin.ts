@@ -374,7 +374,25 @@ export async function getCollectionMembers(boxsetId: string) {
  * collections (BoxSet → films) comme pour les séries (Series → saisons) : dans les
  * deux cas les enfants se récupèrent via parentId.
  */
+// Cache des collections (N+1 inhérent : 186 requêtes). Invalidé après tout apply
+// pour ne pas afficher un poster périmé.
+let boxsetGroupsCache: { data: CollectionItem[]; at: number } | null = null;
+const GROUPS_TTL_MS = 10 * 60_000;
+
+/** À appeler après tout changement de poster/identifiant : purge les caches dérivés. */
+export function invalidateGroupsCache(): void {
+  boxsetGroupsCache = null;
+  memberCache = null;
+}
+
 export async function getGroups(includeItemType: "BoxSet" | "Series"): Promise<CollectionItem[]> {
+  if (
+    includeItemType === "BoxSet" &&
+    boxsetGroupsCache &&
+    Date.now() - boxsetGroupsCache.at < GROUPS_TTL_MS
+  ) {
+    return boxsetGroupsCache.data;
+  }
   const [data, locations] = await Promise.all([
     jf<{ Items: Array<JfMember & { Path?: string }> }>("/Items", {
       Recursive: "true",
@@ -410,6 +428,7 @@ export async function getGroups(includeItemType: "BoxSet" | "Series"): Promise<C
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  if (includeItemType === "BoxSet") boxsetGroupsCache = { data: out, at: Date.now() };
   return out;
 }
 

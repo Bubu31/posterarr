@@ -7,6 +7,7 @@ import {
   getItemProviders,
   getLibrary,
   getPrimaryTag,
+  invalidateGroupsCache,
   ping,
   providerKey,
   setTmdbId,
@@ -90,6 +91,7 @@ app.post("/api/items/:id/apply", async (c) => {
   // Mémorise le tag résultant pour détecter une dérive future (guérison).
   setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
   addHistory(key, imageType, "apply", body.source, body.url, now);
+  invalidateGroupsCache();
 
   return c.json({ ok: true, managed: getManaged(key, imageType) });
 });
@@ -157,6 +159,7 @@ app.post("/api/items/:id/set-tmdb", async (c) => {
   const body = await c.req.json<{ tmdbId: string }>();
   if (!body.tmdbId) return c.json({ error: "tmdbId manquant" }, 400);
   await setTmdbId(c.req.param("id"), body.tmdbId);
+  invalidateGroupsCache();
   return c.json({ ok: true });
 });
 

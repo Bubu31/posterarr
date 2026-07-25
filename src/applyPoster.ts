@@ -6,6 +6,7 @@ import { extFromContentType, saveCustom } from "./customStore.ts";
 import {
   getItemProviders,
   getPrimaryTag,
+  invalidateGroupsCache,
   providerKey,
   uploadImageBytes,
 } from "./jellyfin.ts";
@@ -28,5 +29,6 @@ export async function applyBytesToItem(
   upsertManaged(key, imageType, source, marker, true, now);
   setAppliedTag(key, imageType, await getPrimaryTag(providers.id));
   addHistory(key, imageType, "apply", source, marker, now);
+  invalidateGroupsCache();
   return getManaged(key, imageType);
 }
