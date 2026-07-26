@@ -96,6 +96,41 @@ async function getLibraryLocations(): Promise<string[]> {
   return vfs.flatMap((v) => v.Locations ?? []);
 }
 
+export interface LibraryEntry {
+  id: string;
+  name: string;
+  collectionType: string | null;
+  primaryTag: string | null;
+  posterUrl: string | null;
+}
+
+/** Bibliothèques Jellyfin (CollectionFolder) avec leur image Primary actuelle. */
+export async function getLibraries(): Promise<LibraryEntry[]> {
+  const vfs = await jf<Array<{ Name: string; ItemId: string; CollectionType?: string }>>(
+    "/Library/VirtualFolders",
+  );
+  const ids = vfs.map((v) => v.ItemId).join(",");
+  const items = ids
+    ? await jf<{ Items: Array<{ Id: string; ImageTags?: Record<string, string> }> }>("/Items", {
+        Ids: ids,
+        EnableImageTypes: "Primary",
+      })
+    : { Items: [] };
+  const tagById = new Map(items.Items.map((i) => [i.Id, i.ImageTags?.Primary ?? null]));
+  return vfs.map((v) => {
+    const tag = tagById.get(v.ItemId) ?? null;
+    return {
+      id: v.ItemId,
+      name: v.Name,
+      collectionType: v.CollectionType ?? null,
+      primaryTag: tag,
+      posterUrl: tag
+        ? `${config.jellyfinPublicUrl}/Items/${v.ItemId}/Images/Primary?tag=${tag}&maxWidth=400`
+        : null,
+    };
+  });
+}
+
 // Ensemble des ids de films appartenant à une collection (BoxSet). Mis en cache
 // (les collections changent peu) pour ne pas refaire ~186 requêtes à chaque /api/library.
 let memberCache: { ids: Set<string>; at: number } | null = null;

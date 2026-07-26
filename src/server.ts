@@ -13,6 +13,8 @@ import {
   providerKey,
   setTmdbId,
   uploadImageFromUrl,
+  uploadImageBytes,
+  getLibraries,
 } from "./jellyfin.ts";
 import { activeSourceNames, getCandidates } from "./sources/index.ts";
 import { IMAGE_TYPES, type ImageType } from "./sources/types.ts";
@@ -212,6 +214,62 @@ app.post("/api/heal", async (c) => {
 app.post("/api/snapshot", async (c) => {
   const report = await snapshot();
   return c.json({ ok: true, ...report });
+});
+
+// Liste des bibliothèques Jellyfin + leur image actuelle.
+app.get("/api/libraries", async (c) => {
+  const libraries = await getLibraries();
+  return c.json({ count: libraries.length, libraries });
+});
+
+// Applique une image (upload) à une bibliothèque Jellyfin. Pas de gestion DB
+// (une bibliothèque n'a pas d'identifiant stable TMDB/IMDb/TVDB).
+app.post("/api/libraries/:id/apply-file", async (c) => {
+  const form = await c.req.parseBody();
+  const file = form["file"];
+  if (!(file instanceof File)) return c.json({ error: "Fichier 'file' manquant" }, 400);
+  const imageType = parseImageType(
+    typeof form["imageType"] === "string" ? form["imageType"] : undefined,
+  );
+  try {
+    await uploadImageBytes(
+      c.req.param("id"),
+      imageType,
+      await file.arrayBuffer(),
+      file.type || "image/jpeg",
+    );
+    invalidateGroupsCache();
+    return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ error: String(e) }, 422);
+  }
+});
+
+// Proxy same-origin d'une image distante, pour dessiner sur un <canvas> sans le
+// "tainter" (CORS). Restreint à Jellyfin + sources d'artwork connues.
+const PROXY_HOSTS = ["image.tmdb.org", "fanart.tv", "webservice.fanart.tv", "assets.fanart.tv"];
+app.get("/api/image-proxy", async (c) => {
+  const raw = c.req.query("url");
+  if (!raw) return c.json({ error: "url manquant" }, 400);
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return c.json({ error: "url invalide" }, 400);
+  }
+  const jellyHost = new URL(config.jellyfinPublicUrl).host;
+  const ok = u.host === jellyHost || PROXY_HOSTS.some((h) => u.host === h || u.host.endsWith("." + h));
+  if (!ok || !/^https?:$/.test(u.protocol)) return c.json({ error: "hôte non autorisé" }, 403);
+  const res = await fetch(u, {
+    headers: u.host === jellyHost ? { "X-Emby-Token": config.jellyfinApiKey } : {},
+  });
+  if (!res.ok) return c.json({ error: `amont ${res.status}` }, 502);
+  return new Response(res.body, {
+    headers: {
+      "Content-Type": res.headers.get("content-type") ?? "image/jpeg",
+      "Cache-Control": "max-age=300",
+    },
+  });
 });
 
 // Remplit depuis Fanart (premier candidat) les types d'image manquants.

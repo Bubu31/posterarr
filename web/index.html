@@ -77,9 +77,40 @@
     </div>
   </div>
 
+  <div class="overlay" id="cover-overlay">
+    <div class="panel" style="max-width:900px">
+      <button class="close" onclick="closeCover()">Fermer</button>
+      <h2 id="cover-title">Créer une image</h2>
+      <div class="sub" id="cover-sub"></div>
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:.8rem">
+        <div style="flex:0 0 auto">
+          <canvas id="cover-canvas" style="max-width:340px;height:auto;border-radius:8px;background:#0d0f14"></canvas>
+        </div>
+        <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:.6rem">
+          <label class="sub">Titre<br><input id="cv-text" style="width:100%" placeholder="Ex. Films" oninput="drawCover()"/></label>
+          <label class="sub">Fond<br>
+            <select id="cv-bgmode" style="width:100%" onchange="onBgMode()">
+              <option value="current">Image actuelle</option>
+              <option value="upload">Fichier…</option>
+              <option value="color">Couleur unie</option>
+            </select>
+          </label>
+          <input type="file" id="cv-bgfile" accept="image/*" style="display:none" onchange="onBgFile()"/>
+          <label class="sub">Couleur fond <input id="cv-bgcolor" type="color" value="#12141a" oninput="drawCover()"/></label>
+          <label class="sub">Voile sombre <span id="cv-dimv">45%</span><br><input id="cv-dim" type="range" min="0" max="90" value="45" style="width:100%" oninput="drawCover()"/></label>
+          <label class="sub">Taille texte <span id="cv-fsv">12%</span><br><input id="cv-fs" type="range" min="4" max="24" value="12" style="width:100%" oninput="drawCover()"/></label>
+          <label class="sub">Position <select id="cv-pos" style="width:100%" onchange="drawCover()"><option value="center">Centre</option><option value="bottom">Bas</option><option value="top">Haut</option></select></label>
+          <label class="sub">Couleur texte <input id="cv-color" type="color" value="#ffffff" oninput="drawCover()"/></label>
+          <div id="cover-msg" class="sub"></div>
+          <button class="close" style="float:none;background:var(--accent);color:#fff" onclick="applyCover()">Appliquer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const TYPES = {
-      Movie: "Films", Series: "Séries", BoxSet: "Collections",
+      Movie: "Films", Series: "Séries", BoxSet: "Collections", libraries: "Bibliothèques",
       missing: "Sans poster", missingBackdrop: "Sans fond",
       missingLogo: "Sans logo", missingThumb: "Sans vignette",
     };
@@ -126,6 +157,12 @@
         collist.style.display = "block";
         if (filter === "BoxSet") renderGroups("/api/collections", "film");
         else renderGroups("/api/series", "saison");
+        return;
+      }
+      if (filter === "libraries") {
+        grid.style.display = "none";
+        collist.style.display = "block";
+        renderLibraries();
         return;
       }
       grid.style.display = "grid";
@@ -267,14 +304,15 @@
     function renderCurrent(cur) {
       const el = document.getElementById("d-current");
       const label = (IMAGE_TABS.find(t => t[0] === current.imageType) || [,"image"])[1];
+      const createBtn = `<button class="close" style="float:none;margin-left:.6rem" onclick='openCover(${JSON.stringify({kind:"item",id:current.id,imageType:current.imageType,name:document.getElementById("d-name").textContent})}, ${JSON.stringify(cur?.url || null)})'>🎨 Créer</button>`;
       if (!cur) {
-        el.innerHTML = `<span class="sub">Aucune image « ${label} » actuellement.</span>`;
+        el.innerHTML = `<span class="sub">Aucune image « ${label} » actuellement.</span>${createBtn}`;
         return;
       }
       const isPrimary = current.imageType === "Primary";
       const ratio = isPrimary ? "2/3" : current.imageType === "Banner" ? "5.4/1" : "16/9";
       const fit = isPrimary ? "cover" : "contain";
-      el.innerHTML = `<div class="sub" style="margin-bottom:.35rem">Image « ${label} » actuelle :</div>
+      el.innerHTML = `<div class="sub" style="margin-bottom:.35rem">Image « ${label} » actuelle : ${createBtn}</div>
         <img src="${cur.url}" style="max-height:140px;aspect-ratio:${ratio};object-fit:${fit};border-radius:6px;background:#0d0f14" />`;
     }
 
@@ -485,6 +523,147 @@
 
     function closeDetail() { document.getElementById("overlay").classList.remove("open"); }
     document.getElementById("overlay").onclick = (e) => { if (e.target.id === "overlay") closeDetail(); };
+
+    let librariesCache = null;
+    async function renderLibraries() {
+      const el = document.getElementById("collist");
+      if (!librariesCache) {
+        el.innerHTML = '<div style="color:var(--muted)">Chargement…</div>';
+        librariesCache = (await (await fetch("/api/libraries")).json()).libraries;
+      }
+      const list = librariesCache.filter(l => !q || norm(l.name).includes(q));
+      el.innerHTML = "";
+      for (const l of list) {
+        const row = document.createElement("div");
+        row.className = "col-row";
+        const poster = l.posterUrl
+          ? `<div class="col-poster" style="background-image:url('${l.posterUrl}')"></div>`
+          : `<div class="col-poster">pas d'image</div>`;
+        row.innerHTML = `${poster}
+          <div class="col-main">
+            <h3>${l.name} <span class="sub">· ${l.collectionType || "bibliothèque"}</span></h3>
+            <div style="display:flex;gap:.5rem;margin-top:.5rem">
+              <button class="close" style="float:none" onclick='openCover(${JSON.stringify({kind:"library",id:l.id,imageType:"Primary",name:l.name})}, ${JSON.stringify(l.posterUrl)})'>🎨 Créer une image</button>
+            </div>
+          </div>`;
+        el.appendChild(row);
+      }
+      if (!list.length) el.innerHTML = '<div class="sub">Aucune bibliothèque.</div>';
+    }
+
+    // --- Éditeur de cover (canvas) ---
+    const TYPE_DIM = { Primary:[1000,1500], Backdrop:[1920,1080], Logo:[800,310], Thumb:[1000,562], Banner:[1000,185] };
+    let cover = null; // { target, bgImg }
+
+    async function openCover(target, bgUrl) {
+      cover = { target, bgImg: null };
+      const [w, h] = TYPE_DIM[target.imageType] || TYPE_DIM.Primary;
+      const cv = document.getElementById("cover-canvas");
+      cv.width = w; cv.height = h;
+      document.getElementById("cover-sub").textContent = `${target.name} · ${target.imageType} · ${w}×${h}`;
+      document.getElementById("cv-text").value = target.name || "";
+      document.getElementById("cover-msg").textContent = "";
+      const mode = document.getElementById("cv-bgmode");
+      mode.value = bgUrl ? "current" : "color";
+      cover.currentUrl = bgUrl || null;
+      document.getElementById("cover-overlay").classList.add("open");
+      onBgMode();
+    }
+    function closeCover() { document.getElementById("cover-overlay").classList.remove("open"); cover = null; }
+
+    function loadImg(src, proxied) {
+      return new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => res(img);
+        img.onerror = rej;
+        img.src = proxied ? `/api/image-proxy?url=${encodeURIComponent(src)}` : src;
+      });
+    }
+
+    async function onBgMode() {
+      const mode = document.getElementById("cv-bgmode").value;
+      document.getElementById("cv-bgfile").style.display = mode === "upload" ? "block" : "none";
+      if (mode === "current" && cover.currentUrl) {
+        try { cover.bgImg = await loadImg(cover.currentUrl, true); } catch { cover.bgImg = null; }
+      } else if (mode !== "upload") {
+        cover.bgImg = null;
+      }
+      drawCover();
+    }
+    async function onBgFile() {
+      const f = document.getElementById("cv-bgfile").files[0];
+      if (!f) return;
+      try { cover.bgImg = await loadImg(URL.createObjectURL(f), false); } catch { cover.bgImg = null; }
+      drawCover();
+    }
+
+    function drawCover() {
+      if (!cover) return;
+      const cv = document.getElementById("cover-canvas");
+      const ctx = cv.getContext("2d");
+      const W = cv.width, H = cv.height;
+      ctx.clearRect(0, 0, W, H);
+      if (cover.bgImg) {
+        // cover-fit
+        const ir = cover.bgImg.width / cover.bgImg.height, cr = W / H;
+        let dw, dh;
+        if (ir > cr) { dh = H; dw = H * ir; } else { dw = W; dh = W / ir; }
+        ctx.drawImage(cover.bgImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      } else {
+        ctx.fillStyle = document.getElementById("cv-bgcolor").value;
+        ctx.fillRect(0, 0, W, H);
+      }
+      const dim = +document.getElementById("cv-dim").value / 100;
+      document.getElementById("cv-dimv").textContent = Math.round(dim * 100) + "%";
+      if (dim > 0) { ctx.fillStyle = `rgba(0,0,0,${dim})`; ctx.fillRect(0, 0, W, H); }
+      const text = document.getElementById("cv-text").value.trim();
+      const fsPct = +document.getElementById("cv-fs").value;
+      document.getElementById("cv-fsv").textContent = fsPct + "%";
+      if (text) {
+        const fs = Math.round(H * fsPct / 100);
+        ctx.fillStyle = document.getElementById("cv-color").value;
+        ctx.font = `700 ${fs}px system-ui, Arial, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = fs * 0.3;
+        const pos = document.getElementById("cv-pos").value;
+        const y = pos === "top" ? H * 0.18 : pos === "bottom" ? H * 0.85 : H / 2;
+        // retour à la ligne simple si trop large
+        const words = text.split(" "); const lines = []; let cur = "";
+        for (const w of words) {
+          const t = cur ? cur + " " + w : w;
+          if (ctx.measureText(t).width > W * 0.9 && cur) { lines.push(cur); cur = w; } else cur = t;
+        }
+        if (cur) lines.push(cur);
+        const lh = fs * 1.15;
+        lines.forEach((ln, i) => ctx.fillText(ln, W / 2, y + (i - (lines.length - 1) / 2) * lh));
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    async function applyCover() {
+      if (!cover) return;
+      const msg = document.getElementById("cover-msg");
+      msg.textContent = "Application…";
+      const cv = document.getElementById("cover-canvas");
+      const blob = await new Promise(r => cv.toBlob(r, "image/jpeg", 0.92));
+      if (!blob) { msg.textContent = "Erreur canvas (image protégée ?)"; return; }
+      const fd = new FormData();
+      fd.append("file", blob, "cover.jpg");
+      fd.append("imageType", cover.target.imageType);
+      const url = cover.target.kind === "library"
+        ? `/api/libraries/${cover.target.id}/apply-file`
+        : `/api/items/${cover.target.id}/apply-file`;
+      try {
+        const r = await fetch(url, { method: "POST", body: fd });
+        const d = await r.json();
+        if (d.error) { msg.textContent = "Erreur : " + d.error; return; }
+        msg.textContent = "Appliqué ✅";
+        if (cover.target.kind === "library") librariesCache = null;
+        setTimeout(() => { closeCover(); load(); }, 500);
+      } catch (e) { msg.textContent = "Erreur : " + e; }
+    }
 
     document.getElementById("search").oninput = (e) => { q = norm(e.target.value); render(); };
     load();
