@@ -96,15 +96,19 @@ async function getLibraryLocations(): Promise<string[]> {
   return vfs.flatMap((v) => v.Locations ?? []);
 }
 
+export interface LibraryImage {
+  tag: string | null;
+  url: string | null;
+}
 export interface LibraryEntry {
   id: string;
   name: string;
   collectionType: string | null;
-  primaryTag: string | null;
-  posterUrl: string | null;
+  primary: LibraryImage;
+  thumb: LibraryImage;
 }
 
-/** Bibliothèques Jellyfin (CollectionFolder) avec leur image Primary actuelle. */
+/** Bibliothèques Jellyfin (CollectionFolder) avec leurs images Primary + Thumb. */
 export async function getLibraries(): Promise<LibraryEntry[]> {
   const vfs = await jf<Array<{ Name: string; ItemId: string; CollectionType?: string }>>(
     "/Library/VirtualFolders",
@@ -113,22 +117,35 @@ export async function getLibraries(): Promise<LibraryEntry[]> {
   const items = ids
     ? await jf<{ Items: Array<{ Id: string; ImageTags?: Record<string, string> }> }>("/Items", {
         Ids: ids,
-        EnableImageTypes: "Primary",
+        EnableImageTypes: "Primary,Thumb",
       })
     : { Items: [] };
-  const tagById = new Map(items.Items.map((i) => [i.Id, i.ImageTags?.Primary ?? null]));
-  return vfs.map((v) => {
-    const tag = tagById.get(v.ItemId) ?? null;
+  const tagsById = new Map(items.Items.map((i) => [i.Id, i.ImageTags ?? {}]));
+  const img = (id: string, type: string): LibraryImage => {
+    const tag = tagsById.get(id)?.[type] ?? null;
     return {
-      id: v.ItemId,
-      name: v.Name,
-      collectionType: v.CollectionType ?? null,
-      primaryTag: tag,
-      posterUrl: tag
-        ? `${config.jellyfinPublicUrl}/Items/${v.ItemId}/Images/Primary?tag=${tag}&maxWidth=400`
+      tag,
+      url: tag
+        ? `${config.jellyfinPublicUrl}/Items/${id}/Images/${type}?tag=${tag}&maxWidth=500`
         : null,
     };
+  };
+  return vfs.map((v) => ({
+    id: v.ItemId,
+    name: v.Name,
+    collectionType: v.CollectionType ?? null,
+    primary: img(v.ItemId, "Primary"),
+    thumb: img(v.ItemId, "Thumb"),
+  }));
+}
+
+/** Supprime une image d'un item Jellyfin (bibliothèque, film…). */
+export async function deleteImage(itemId: string, imageType: string): Promise<void> {
+  const res = await fetch(`${config.jellyfinUrl}/Items/${itemId}/Images/${imageType}`, {
+    method: "DELETE",
+    headers: { "X-Emby-Token": config.jellyfinApiKey },
   });
+  if (!res.ok) throw new Error(`Suppression Jellyfin ${imageType} -> ${res.status}`);
 }
 
 // Ensemble des ids de films appartenant à une collection (BoxSet). Mis en cache

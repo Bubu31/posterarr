@@ -533,19 +533,33 @@
       }
       const list = librariesCache.filter(l => !q || norm(l.name).includes(q));
       el.innerHTML = "";
+      // Dimensions Jellyfin par type d'image de bibliothèque.
+      const LIB_DIM = { Primary: [682, 1024], Thumb: [1200, 700] };
+      const cell = (l, type, label, img) => {
+        const [w, h] = LIB_DIM[type];
+        const tgt = { kind: "library", id: l.id, imageType: type, name: l.name };
+        const preview = img.url
+          ? `<img src="${img.url}" style="width:100%;aspect-ratio:${w}/${h};object-fit:cover;border-radius:6px;background:#0d0f14"/>`
+          : `<div style="width:100%;aspect-ratio:${w}/${h};display:flex;align-items:center;justify-content:center;border-radius:6px;background:#0d0f14;color:var(--muted);font-size:.8rem">aucune</div>`;
+        const del = img.url
+          ? `<button class="close" style="float:none" onclick='delLibImage("${l.id}","${type}")'>🗑️ Supprimer</button>`
+          : "";
+        return `<div style="flex:1;min-width:180px;max-width:260px">
+          ${preview}
+          <div class="sub" style="margin:.35rem 0">${label} · ${w}×${h}</div>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+            <button class="close" style="float:none" onclick='openCover(${JSON.stringify(tgt)}, ${JSON.stringify(img.url)}, [${w},${h}])'>🎨 Créer</button>
+            ${del}
+          </div>
+        </div>`;
+      };
       for (const l of list) {
         const row = document.createElement("div");
         row.className = "col-row";
-        const poster = l.posterUrl
-          ? `<div class="col-poster" style="background-image:url('${l.posterUrl}')"></div>`
-          : `<div class="col-poster">pas d'image</div>`;
-        row.innerHTML = `${poster}
-          <div class="col-main">
-            <h3>${l.name} <span class="sub">· ${l.collectionType || "bibliothèque"}</span></h3>
-            <div style="display:flex;gap:.5rem;margin-top:.5rem">
-              <button class="close" style="float:none" onclick='openCover(${JSON.stringify({kind:"library",id:l.id,imageType:"Primary",name:l.name})}, ${JSON.stringify(l.posterUrl)})'>🎨 Créer une image</button>
-            </div>
-          </div>`;
+        row.style.flexWrap = "wrap";
+        row.innerHTML = `<div style="flex:1 1 100%;margin-bottom:.4rem"><h3>${l.name} <span class="sub">· ${l.collectionType || "bibliothèque"}</span></h3></div>
+          ${cell(l, "Primary", "Primary", l.primary)}
+          ${cell(l, "Thumb", "Thumb", l.thumb)}`;
         el.appendChild(row);
       }
       if (!list.length) el.innerHTML = '<div class="sub">Aucune bibliothèque.</div>';
@@ -555,9 +569,9 @@
     const TYPE_DIM = { Primary:[1000,1500], Backdrop:[1920,1080], Logo:[800,310], Thumb:[1000,562], Banner:[1000,185] };
     let cover = null; // { target, bgImg }
 
-    async function openCover(target, bgUrl) {
+    async function openCover(target, bgUrl, dims) {
       cover = { target, bgImg: null };
-      const [w, h] = TYPE_DIM[target.imageType] || TYPE_DIM.Primary;
+      const [w, h] = dims || TYPE_DIM[target.imageType] || TYPE_DIM.Primary;
       const cv = document.getElementById("cover-canvas");
       cv.width = w; cv.height = h;
       document.getElementById("cover-sub").textContent = `${target.name} · ${target.imageType} · ${w}×${h}`;
@@ -570,6 +584,14 @@
       onBgMode();
     }
     function closeCover() { document.getElementById("cover-overlay").classList.remove("open"); cover = null; }
+
+    async function delLibImage(id, type) {
+      if (!confirm(`Supprimer l'image ${type} de cette bibliothèque ?`)) return;
+      const r = await fetch(`/api/libraries/${id}/images/${type}`, { method: "DELETE" });
+      const d = await r.json();
+      if (d.error) { alert("Erreur : " + d.error); return; }
+      librariesCache = null; renderLibraries();
+    }
 
     function loadImg(src, proxied) {
       return new Promise((res, rej) => {

@@ -15,6 +15,7 @@ import {
   uploadImageFromUrl,
   uploadImageBytes,
   getLibraries,
+  deleteImage,
 } from "./jellyfin.ts";
 import { activeSourceNames, getCandidates } from "./sources/index.ts";
 import { IMAGE_TYPES, type ImageType } from "./sources/types.ts";
@@ -238,6 +239,18 @@ app.post("/api/libraries/:id/apply-file", async (c) => {
       await file.arrayBuffer(),
       file.type || "image/jpeg",
     );
+    invalidateGroupsCache();
+    return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ error: String(e) }, 422);
+  }
+});
+
+// Supprime une image (Primary/Thumb) d'une bibliothèque Jellyfin.
+app.delete("/api/libraries/:id/images/:type", async (c) => {
+  const imageType = parseImageType(c.req.param("type"));
+  try {
+    await deleteImage(c.req.param("id"), imageType);
     invalidateGroupsCache();
     return c.json({ ok: true });
   } catch (e) {
