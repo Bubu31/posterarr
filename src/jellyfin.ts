@@ -149,8 +149,14 @@ export async function getLibrary(): Promise<LibraryItem[]> {
     getLibraryLocations(),
     getCollectionMemberIds(),
   ]);
-  // Le tag managé prime sur le bulk (qui peut être périmé après un refresh).
+  // Le tag managé prime sur le bulk (périmé après un apply/refresh) — pour TOUS
+  // les types, sinon un logo/fond/vignette fraîchement appliqué reste "manquant".
   const maps = buildAppliedMaps();
+  const backdropMap = buildAppliedMaps("Backdrop");
+  const logoMap = buildAppliedMaps("Logo");
+  const thumbMap = buildAppliedMaps("Thumb");
+  const managed = (m: ReturnType<typeof buildAppliedMaps>, id: string, key: string | null) =>
+    m.byItemId.has(id) || (key ? m.byKey.has(key) : false);
   return data.Items.filter((it) => {
     if (!it.Path) return true; // pas de chemin (collections…) : on garde
     return locations.some((loc) => it.Path!.startsWith(loc));
@@ -169,9 +175,9 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       primaryTag: tag,
       posterUrl: posterUrl(it.Id, tag),
       inCollection: memberIds.has(it.Id),
-      hasBackdrop: (it.BackdropImageTags?.length ?? 0) > 0,
-      hasLogo: !!it.ImageTags?.Logo,
-      hasThumb: !!it.ImageTags?.Thumb,
+      hasBackdrop: (it.BackdropImageTags?.length ?? 0) > 0 || managed(backdropMap, it.Id, key),
+      hasLogo: !!it.ImageTags?.Logo || managed(logoMap, it.Id, key),
+      hasThumb: !!it.ImageTags?.Thumb || managed(thumbMap, it.Id, key),
     };
   });
 }
