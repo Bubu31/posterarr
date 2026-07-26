@@ -77,7 +77,13 @@
   </div>
 
   <script>
-    const TYPES = { Movie: "Films", Series: "Séries", BoxSet: "Collections", missing: "Sans poster" };
+    const TYPES = {
+      Movie: "Films", Series: "Séries", BoxSet: "Collections",
+      missing: "Sans poster", missingBackdrop: "Sans fond",
+      missingLogo: "Sans logo", missingThumb: "Sans vignette",
+    };
+    // Filtre « manquant » -> type d'image à ouvrir dans le détail.
+    const MISSING_TYPE = { missing: "Primary", missingBackdrop: "Backdrop", missingLogo: "Logo", missingThumb: "Thumb" };
     let items = [], filter = "Movie", q = "";
 
     let pendingScroll = null; // position de scroll à restaurer après un re-render async
@@ -121,8 +127,11 @@
       collist.style.display = "none";
       const list = items.filter(i => {
         if (q && !i.name.toLowerCase().includes(q)) return false;
-        // onglet Sans poster : tout ce qui n'a pas de visuel, tous types confondus
+        // onglets « sans X » : items dépourvus de ce type d'image, tous types confondus
         if (filter === "missing") return !i.posterUrl;
+        if (filter === "missingBackdrop") return !i.hasBackdrop;
+        if (filter === "missingLogo") return !i.hasLogo;
+        if (filter === "missingThumb") return !i.hasThumb;
         // onglet Films : masquer les films déjà dans une collection
         return i.type === filter && !(filter === "Movie" && i.inCollection);
       });
@@ -130,9 +139,10 @@
       for (const i of list.slice(0, 300)) {
         const card = document.createElement("div");
         card.className = "card";
+        const openType = MISSING_TYPE[filter] ?? "Primary";
         const poster = i.posterUrl
-          ? `<div class="poster" style="background-image:url('${i.posterUrl}')" onclick="openDetail('${i.id}')"></div>`
-          : `<div class="poster" onclick="openDetail('${i.id}')">pas de poster</div>`;
+          ? `<div class="poster" style="background-image:url('${i.posterUrl}')" onclick="openDetail('${i.id}','${openType}')"></div>`
+          : `<div class="poster" onclick="openDetail('${i.id}','${openType}')">pas de poster</div>`;
         card.innerHTML = `${poster}<div class="meta">
           <div class="name" title="${i.name}">${i.name}</div>
           <div class="sub">${i.year ?? ""} ${i.posterUrl ? "" : '<span class="badge">manquant</span>'}</div>

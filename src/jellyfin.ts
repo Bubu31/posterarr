@@ -17,6 +17,10 @@ export interface LibraryItem {
   posterUrl: string | null;
   /** true si le film appartient à une collection (BoxSet) — pour filtrer l'onglet Films. */
   inCollection: boolean;
+  /** Présence des autres types d'image (filtres « sans fond/logo/vignette »). */
+  hasBackdrop: boolean;
+  hasLogo: boolean;
+  hasThumb: boolean;
 }
 
 async function jf<T>(path: string, params: Record<string, string> = {}): Promise<T> {
@@ -53,7 +57,8 @@ interface JfItemsResponse {
     Name: string;
     Type: MediaType;
     ProductionYear?: number;
-    ImageTags?: { Primary?: string };
+    ImageTags?: { Primary?: string; Logo?: string; Thumb?: string };
+    BackdropImageTags?: string[];
     ProviderIds?: Record<string, string>;
     Path?: string;
   }>;
@@ -139,7 +144,7 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       Fields: "ProductionYear,Path,ProviderIds",
       SortBy: "SortName",
       SortOrder: "Ascending",
-      EnableImageTypes: "Primary",
+      EnableImageTypes: "Primary,Backdrop,Logo,Thumb",
     }),
     getLibraryLocations(),
     getCollectionMemberIds(),
@@ -164,6 +169,9 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       primaryTag: tag,
       posterUrl: posterUrl(it.Id, tag),
       inCollection: memberIds.has(it.Id),
+      hasBackdrop: (it.BackdropImageTags?.length ?? 0) > 0,
+      hasLogo: !!it.ImageTags?.Logo,
+      hasThumb: !!it.ImageTags?.Thumb,
     };
   });
 }
