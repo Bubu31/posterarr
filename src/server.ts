@@ -27,6 +27,7 @@ import { applyBytesToItem } from "./applyPoster.ts";
 import { applyPosterZip, applySeriesZip } from "./posterZip.ts";
 import { heal } from "./healer.ts";
 import { snapshot } from "./snapshot.ts";
+import { autofill } from "./autofill.ts";
 
 const app = new Hono();
 
@@ -211,6 +212,21 @@ app.post("/api/heal", async (c) => {
 app.post("/api/snapshot", async (c) => {
   const report = await snapshot();
   return c.json({ ok: true, ...report });
+});
+
+// Remplit depuis Fanart (premier candidat) les types d'image manquants.
+app.post("/api/autofill", async (c) => {
+  const body = await c.req
+    .json<{ types?: string[]; lock?: boolean }>()
+    .catch(() => ({}) as { types?: string[]; lock?: boolean });
+  const types = (body.types ?? ["Primary", "Backdrop", "Logo", "Thumb"]).filter(
+    (t): t is ImageType => IMAGE_TYPES.includes(t as ImageType),
+  );
+  try {
+    return c.json(await autofill(types, body.lock ?? false));
+  } catch (e) {
+    return c.json({ error: String(e) }, 409);
+  }
 });
 
 // Front statique (une page pour l'instant, pas de build)

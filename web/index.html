@@ -52,6 +52,7 @@
     <span class="stats" id="stats">chargement…</span>
     <button id="heal-btn" onclick="runHeal()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">🩹 Guérir</button>
     <button id="snapshot-btn" onclick="runSnapshot()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">📸 Snapshot</button>
+    <button id="autofill-btn" onclick="runAutofill()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">⚡ Auto-fanart</button>
     <input id="search" placeholder="Rechercher…" />
   </header>
   <div class="filters" id="filters"></div>
@@ -341,6 +342,26 @@
           `${d.skippedNoKey} sans id stable (collections/saisons)`,
         ].join("\n"));
         if (d.recorded) load();
+      } finally { btn.textContent = old; btn.disabled = false; }
+    }
+
+    async function runAutofill() {
+      if (!confirm("Appliquer le premier visuel Fanart à tous les items sans poster / fond / logo / vignette ?\nPeut prendre plusieurs minutes.")) return;
+      const btn = document.getElementById("autofill-btn");
+      const old = btn.textContent;
+      btn.textContent = "⚡ En cours…"; btn.disabled = true;
+      try {
+        const r = await fetch("/api/autofill", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const d = await r.json();
+        if (d.error) { alert("Auto-fanart : " + d.error); return; }
+        const ap = d.applied || {};
+        alert("Auto-fanart terminé\n\n" + [
+          `${d.itemsScanned} item(s) traité(s)`,
+          `Poster: ${ap.Primary||0} · Fond: ${ap.Backdrop||0} · Logo: ${ap.Logo||0} · Vignette: ${ap.Thumb||0}`,
+          `${d.noFanart} sans candidat Fanart`,
+          d.errors?.length ? `${d.errors.length} erreur(s)` : "",
+        ].filter(Boolean).join("\n"));
+        load();
       } finally { btn.textContent = old; btn.disabled = false; }
     }
 
