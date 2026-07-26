@@ -69,9 +69,19 @@ app.get("/api/items/:id/candidates", async (c) => {
   };
   const candidates = await getCandidates(ref, imageType);
   const key = providerKey(providers);
+  // Image actuellement en place côté Jellyfin pour ce type (null si aucune).
+  const currentTag = await getImageTag(providers.id, imageType);
+  const imgPath = imageType === "Backdrop" ? "Backdrop/0" : imageType;
+  const current = currentTag
+    ? {
+        tag: currentTag,
+        url: `${config.jellyfinPublicUrl}/Items/${providers.id}/Images/${imgPath}?tag=${currentTag}&maxWidth=400&quality=80`,
+      }
+    : null;
   return c.json({
     item: providers,
     imageType,
+    current,
     managed: key ? getManaged(key, imageType) : null,
     sources: activeSourceNames(ref),
     count: candidates.length,

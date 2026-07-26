@@ -67,6 +67,7 @@
       <div id="d-identify" style="margin-top:.6rem"></div>
       <div id="d-zip" style="margin-top:.6rem"></div>
       <div id="d-lock" style="margin-top:.6rem"></div>
+      <div id="d-current" style="margin-top:.7rem"></div>
       <div id="dropzone" style="margin-top:.8rem;border:1px dashed #2a2d36;border-radius:8px;padding:.7rem;text-align:center;color:var(--muted);cursor:pointer;font-size:.85rem">
         📤 Glisse une image ici ou clique pour un poster custom
         <input type="file" id="file-input" accept="image/*" style="display:none" />
@@ -222,6 +223,7 @@
       renderIdentify(d.item);
       renderZip(d.item);
       renderLock();
+      renderCurrent(d.current);
       const g = document.getElementById("cand-grid");
       g.innerHTML = "";
       // Le poster est en portrait ; les autres types sont paysage/transparents.
@@ -245,6 +247,20 @@
         el.onclick = () => apply(c);
         g.appendChild(el);
       }
+    }
+
+    function renderCurrent(cur) {
+      const el = document.getElementById("d-current");
+      const label = (IMAGE_TABS.find(t => t[0] === current.imageType) || [,"image"])[1];
+      if (!cur) {
+        el.innerHTML = `<span class="sub">Aucune image « ${label} » actuellement.</span>`;
+        return;
+      }
+      const isPrimary = current.imageType === "Primary";
+      const ratio = isPrimary ? "2/3" : current.imageType === "Banner" ? "5.4/1" : "16/9";
+      const fit = isPrimary ? "cover" : "contain";
+      el.innerHTML = `<div class="sub" style="margin-bottom:.35rem">Image « ${label} » actuelle :</div>
+        <img src="${cur.url}" style="max-height:140px;aspect-ratio:${ratio};object-fit:${fit};border-radius:6px;background:#0d0f14" />`;
     }
 
     function renderLock() {
