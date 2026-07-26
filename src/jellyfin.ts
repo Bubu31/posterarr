@@ -145,6 +145,8 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       SortBy: "SortName",
       SortOrder: "Ascending",
       EnableImageTypes: "Primary,Backdrop,Logo,Thumb",
+      // Sinon Jellyfin masque les films/séries appartenant à une collection.
+      CollapseBoxSetItems: "false",
     }),
     getLibraryLocations(),
     getCollectionMemberIds(),
@@ -322,6 +324,7 @@ export async function getLibraryTargets(): Promise<LibraryTarget[]> {
     IncludeItemTypes: "Movie,Series,BoxSet,Season",
     Fields: "ProviderIds",
     EnableImageTypes: "Primary,Backdrop,Logo,Thumb,Banner",
+    CollapseBoxSetItems: "false",
   });
   return data.Items.map((it) => {
     const p = new Map(
@@ -403,6 +406,7 @@ export async function getSeries(): Promise<CollectionItem[]> {
       SortBy: "SortName",
       SortOrder: "Ascending",
       EnableImageTypes: "Primary",
+      CollapseBoxSetItems: "false",
     }),
     getLibraryLocations(),
     jf<{ Items: Array<JfMember & { SeriesId: string; IndexNumber?: number }> }>("/Items", {
