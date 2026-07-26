@@ -314,7 +314,7 @@
     function renderCurrent(cur) {
       const el = document.getElementById("d-current");
       const label = (IMAGE_TABS.find(t => t[0] === current.imageType) || [,"image"])[1];
-      const createBtn = `<button class="close" style="float:none;margin-left:.6rem" onclick='openCover(${JSON.stringify({kind:"item",id:current.id,imageType:current.imageType,name:document.getElementById("d-name").textContent})}, ${JSON.stringify(cur?.url || null)})'>🎨 Créer</button>`;
+      const createBtn = `<button class="close" style="float:none;margin-left:.6rem" onclick='openCover(${attrJson({kind:"item",id:current.id,imageType:current.imageType,name:document.getElementById("d-name").textContent})}, ${attrJson(cur?.url || null)})'>🎨 Créer</button>`;
       if (!cur) {
         el.innerHTML = `<span class="sub">Aucune image « ${label} » actuellement.</span>${createBtn}`;
         return;
@@ -558,7 +558,7 @@
           ${preview}
           <div class="sub" style="margin:.35rem 0">${label} · ${w}×${h}</div>
           <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-            <button class="close" style="float:none" onclick='openCover(${JSON.stringify(tgt)}, ${JSON.stringify(img.url)}, [${w},${h}])'>🎨 Créer</button>
+            <button class="close" style="float:none" onclick='openCover(${attrJson(tgt)}, ${attrJson(img.url)}, [${w},${h}])'>🎨 Créer</button>
             ${del}
           </div>
         </div>`;
@@ -579,6 +579,8 @@
     const TYPE_DIM = { Primary:[1000,1500], Backdrop:[1920,1080], Logo:[800,310], Thumb:[1000,562], Banner:[1000,185] };
     let cover = null; // { target, bgImg }
 
+    // Échappe un JSON pour l'injecter dans un attribut HTML entre apostrophes.
+    const attrJson = (v) => JSON.stringify(v).replace(/&/g, "&amp;").replace(/'/g, "&#39;");
     const hexA = (hex, a) => {
       const n = parseInt(hex.slice(1), 16);
       return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
