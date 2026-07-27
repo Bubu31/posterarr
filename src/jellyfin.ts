@@ -203,24 +203,14 @@ export async function getLibrary(): Promise<LibraryItem[]> {
     getLibraryLocations(),
     getCollectionMemberIds(),
   ]);
-  // Le tag managé prime sur le bulk (périmé après un apply/refresh) — pour TOUS
-  // les types, sinon un logo/fond/vignette fraîchement appliqué reste "manquant".
-  const maps = buildAppliedMaps();
-  const backdropMap = buildAppliedMaps("Backdrop");
-  const logoMap = buildAppliedMaps("Logo");
-  const thumbMap = buildAppliedMaps("Thumb");
-  const managed = (m: ReturnType<typeof buildAppliedMaps>, id: string, key: string | null) =>
-    m.byItemId.has(id) || (key ? m.byKey.has(key) : false);
+  // Jellyfin est la source de vérité de la présence d'image : on ne surcharge
+  // PAS depuis la DB managée, sinon un tag périmé (image supprimée côté Jellyfin
+  // depuis) masque à tort l'item dans « Sans poster/fond/logo/vignette ».
   return data.Items.filter((it) => {
     if (!it.Path) return true; // pas de chemin (collections…) : on garde
     return locations.some((loc) => it.Path!.startsWith(loc));
   }).map((it) => {
-    const key = providerKeyFromIds(it.ProviderIds);
-    const tag =
-      maps.byItemId.get(it.Id) ??
-      (key ? maps.byKey.get(key) : undefined) ??
-      it.ImageTags?.Primary ??
-      null;
+    const tag = it.ImageTags?.Primary ?? null;
     return {
       id: it.Id,
       name: it.Name,
@@ -229,9 +219,9 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       primaryTag: tag,
       posterUrl: posterUrl(it.Id, tag),
       inCollection: memberIds.has(it.Id),
-      hasBackdrop: (it.BackdropImageTags?.length ?? 0) > 0 || managed(backdropMap, it.Id, key),
-      hasLogo: !!it.ImageTags?.Logo || managed(logoMap, it.Id, key),
-      hasThumb: !!it.ImageTags?.Thumb || managed(thumbMap, it.Id, key),
+      hasBackdrop: (it.BackdropImageTags?.length ?? 0) > 0,
+      hasLogo: !!it.ImageTags?.Logo,
+      hasThumb: !!it.ImageTags?.Thumb,
     };
   });
 }
