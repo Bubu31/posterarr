@@ -21,6 +21,8 @@ export interface LibraryItem {
   hasBackdrop: boolean;
   hasLogo: boolean;
   hasThumb: boolean;
+  /** URLs par type d'image (null si absent) — pour la vue « ligne ». */
+  images: Record<string, string | null>;
 }
 
 async function jf<T>(path: string, params: Record<string, string> = {}): Promise<T> {
@@ -49,6 +51,13 @@ function posterUrl(id: string, tag: string | null): string | null {
   // URL PUBLIQUE (chargée par le navigateur) ; maxWidth pour des vignettes légères,
   // le tag évite le cache navigateur périmé.
   return `${config.jellyfinPublicUrl}/Items/${id}/Images/Primary?tag=${tag}&maxWidth=300&quality=80`;
+}
+
+/** URL publique d'un type d'image quelconque (Backdrop = index 0). */
+function imageUrlOf(id: string, type: string, tag: string | null): string | null {
+  if (!tag) return null;
+  const path = type === "Backdrop" ? "Backdrop/0" : type;
+  return `${config.jellyfinPublicUrl}/Items/${id}/Images/${path}?tag=${tag}&maxWidth=400&quality=80`;
 }
 
 interface JfItemsResponse {
@@ -222,6 +231,12 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       hasBackdrop: (it.BackdropImageTags?.length ?? 0) > 0,
       hasLogo: !!it.ImageTags?.Logo,
       hasThumb: !!it.ImageTags?.Thumb,
+      images: {
+        Primary: imageUrlOf(it.Id, "Primary", it.ImageTags?.Primary ?? null),
+        Backdrop: imageUrlOf(it.Id, "Backdrop", it.BackdropImageTags?.[0] ?? null),
+        Logo: imageUrlOf(it.Id, "Logo", it.ImageTags?.Logo ?? null),
+        Thumb: imageUrlOf(it.Id, "Thumb", it.ImageTags?.Thumb ?? null),
+      },
     };
   });
 }
@@ -424,6 +439,8 @@ export interface CollectionItem {
   name: string;
   year: number | null;
   posterUrl: string | null;
+  /** URLs par type d'image de la tête (série/collection), pour la vue « ligne ». */
+  images: Record<string, string | null>;
   members: Array<{ id: string; name: string; year: number | null; posterUrl: string | null }>;
 }
 
@@ -431,7 +448,8 @@ interface JfMember {
   Id: string;
   Name: string;
   ProductionYear?: number;
-  ImageTags?: { Primary?: string };
+  ImageTags?: { Primary?: string; Logo?: string; Thumb?: string };
+  BackdropImageTags?: string[];
 }
 
 /**
@@ -447,7 +465,7 @@ export async function getSeries(): Promise<CollectionItem[]> {
       Fields: "ProductionYear,Path",
       SortBy: "SortName",
       SortOrder: "Ascending",
-      EnableImageTypes: "Primary",
+      EnableImageTypes: "Primary,Backdrop,Logo,Thumb",
       CollapseBoxSetItems: "false",
     }),
     getLibraryLocations(),
@@ -485,6 +503,12 @@ export async function getSeries(): Promise<CollectionItem[]> {
     name: p.Name,
     year: p.ProductionYear ?? null,
     posterUrl: posterUrl(p.Id, tagFor(p.Id, p.ImageTags?.Primary)),
+    images: {
+      Primary: imageUrlOf(p.Id, "Primary", tagFor(p.Id, p.ImageTags?.Primary)),
+      Backdrop: imageUrlOf(p.Id, "Backdrop", p.BackdropImageTags?.[0] ?? null),
+      Logo: imageUrlOf(p.Id, "Logo", p.ImageTags?.Logo ?? null),
+      Thumb: imageUrlOf(p.Id, "Thumb", p.ImageTags?.Thumb ?? null),
+    },
     members: bySeries.get(p.Id) ?? [],
   }));
 }
@@ -550,7 +574,7 @@ export async function getGroups(includeItemType: "BoxSet" | "Series"): Promise<C
       Fields: "ProductionYear,Path",
       SortBy: "SortName",
       SortOrder: "Ascending",
-      EnableImageTypes: "Primary",
+      EnableImageTypes: "Primary,Backdrop,Logo,Thumb",
     }),
     getLibraryLocations(),
   ]);
@@ -574,6 +598,12 @@ export async function getGroups(includeItemType: "BoxSet" | "Series"): Promise<C
         name: p.Name,
         year: p.ProductionYear ?? null,
         posterUrl: posterUrl(p.Id, maps.byItemId.get(p.Id) ?? p.ImageTags?.Primary ?? null),
+        images: {
+          Primary: imageUrlOf(p.Id, "Primary", maps.byItemId.get(p.Id) ?? p.ImageTags?.Primary ?? null),
+          Backdrop: imageUrlOf(p.Id, "Backdrop", p.BackdropImageTags?.[0] ?? null),
+          Logo: imageUrlOf(p.Id, "Logo", p.ImageTags?.Logo ?? null),
+          Thumb: imageUrlOf(p.Id, "Thumb", p.ImageTags?.Thumb ?? null),
+        },
         members,
       };
     }

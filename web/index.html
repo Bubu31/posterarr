@@ -53,6 +53,7 @@
     <button id="heal-btn" onclick="runHeal()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">🩹 Guérir</button>
     <button id="snapshot-btn" onclick="runSnapshot()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">📸 Snapshot</button>
     <button id="autofill-btn" onclick="runAutofill()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer">⚡ Auto-remplir</button>
+    <button id="view-btn" onclick="toggleView()" style="background:var(--card);border:1px solid #2a2d36;color:var(--fg);padding:.5rem .9rem;border-radius:8px;cursor:pointer"></button>
     <input id="search" placeholder="Rechercher…" />
   </header>
   <div class="filters" id="filters"></div>
@@ -134,6 +135,31 @@
 
     let pendingScroll = null; // position de scroll à restaurer après un re-render async
 
+    // Vue : "liste" (posters seuls) ou "ligne" (tous les types d'image par item).
+    let viewMode = localStorage.getItem("posterarr.view") || "liste";
+    function updateViewBtn() {
+      const b = document.getElementById("view-btn");
+      b.textContent = viewMode === "liste" ? "☰ Vue ligne" : "▦ Vue liste";
+    }
+    function toggleView() {
+      viewMode = viewMode === "liste" ? "ligne" : "liste";
+      localStorage.setItem("posterarr.view", viewMode);
+      updateViewBtn();
+      for (const k in groupCache) delete groupCache[k]; // rerender propre
+      render();
+    }
+    // Bandeau des 4 types d'image d'un item, chacun cliquable vers son onglet.
+    function imgStrip(images, id) {
+      const T = [["Primary","Poster","2/3"],["Backdrop","Fond","16/9"],["Logo","Logo","16/9"],["Thumb","Vignette","16/9"]];
+      return `<div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.4rem">` + T.map(([t,label,ar]) => {
+        const u = images && images[t];
+        const box = u
+          ? `<img loading="lazy" src="${u}" style="height:74px;aspect-ratio:${ar};object-fit:${t==="Primary"?"cover":"contain"};border-radius:6px;background:#0d0f14"/>`
+          : `<div style="height:74px;aspect-ratio:${ar};display:flex;align-items:center;justify-content:center;border-radius:6px;background:#0d0f14;color:var(--muted);font-size:.7rem;min-width:52px">∅</div>`;
+        return `<div onclick="openDetail('${id}','${t}')" style="cursor:pointer;text-align:center">${box}<div class="sub" style="font-size:.68rem">${label}</div></div>`;
+      }).join("") + `</div>`;
+    }
+
     async function load() {
       pendingScroll = window.scrollY; // préserve la position (le re-render ne remonte pas en haut)
       for (const k in groupCache) delete groupCache[k]; // invalide le cache (un poster a pu changer)
@@ -206,14 +232,26 @@
       for (let n = gridState.shown; n < end; n++) {
         const i = gridState.list[n];
         const card = document.createElement("div");
-        card.className = "card";
-        const poster = i.posterUrl
-          ? `<div class="poster" style="background-image:url('${i.posterUrl}')" onclick="openDetail('${i.id}','${openType}')"></div>`
-          : `<div class="poster" onclick="openDetail('${i.id}','${openType}')">pas de poster</div>`;
-        card.innerHTML = `${poster}<div class="meta">
-          <div class="name" title="${i.name}">${i.name}</div>
-          <div class="sub">${i.year ?? ""} ${i.posterUrl ? "" : '<span class="badge">manquant</span>'}</div>
-        </div>`;
+        if (viewMode === "ligne") {
+          card.className = "col-row";
+          card.style.gridColumn = "1/-1";
+          const poster = i.posterUrl
+            ? `<div class="col-poster" style="background-image:url('${i.posterUrl}')" onclick="openDetail('${i.id}','Primary')"></div>`
+            : `<div class="col-poster" onclick="openDetail('${i.id}','Primary')">pas de poster</div>`;
+          card.innerHTML = `${poster}<div class="col-main">
+            <h3>${i.name}${i.year ? ` <span class="sub" style="font-weight:400">${i.year}</span>` : ""}</h3>
+            ${imgStrip(i.images, i.id)}
+          </div>`;
+        } else {
+          card.className = "card";
+          const poster = i.posterUrl
+            ? `<div class="poster" style="background-image:url('${i.posterUrl}')" onclick="openDetail('${i.id}','${openType}')"></div>`
+            : `<div class="poster" onclick="openDetail('${i.id}','${openType}')">pas de poster</div>`;
+          card.innerHTML = `${poster}<div class="meta">
+            <div class="name" title="${i.name}">${i.name}</div>
+            <div class="sub">${i.year ?? ""} ${i.posterUrl ? "" : '<span class="badge">manquant</span>'}</div>
+          </div>`;
+        }
         frag.appendChild(card);
       }
       gridState.shown = end;
@@ -249,12 +287,35 @@
       }
       const list = groupCache[endpoint].filter(c => !q || norm(c.name).includes(q));
       el.innerHTML = "";
+      if (!list.length) { el.innerHTML = '<div style="color:var(--muted)">Aucun résultat.</div>'; return; }
+
+      if (viewMode === "liste") {
+        // Grille de posters (couvertures) uniquement.
+        const g = document.createElement("div");
+        g.className = "grid";
+        g.style.display = "grid";
+        for (const c of list) {
+          const card = document.createElement("div");
+          card.className = "card";
+          const poster = c.posterUrl
+            ? `<div class="poster" style="background-image:url('${c.posterUrl}')" onclick="openDetail('${c.id}','Primary')"></div>`
+            : `<div class="poster" onclick="openDetail('${c.id}','Primary')">pas de poster</div>`;
+          card.innerHTML = `${poster}<div class="meta"><div class="name" title="${c.name}">${c.name}</div>
+            <div class="sub">${c.year ?? ""} · ${c.members.length} ${memberLabel}(s)</div></div>`;
+          g.appendChild(card);
+        }
+        el.appendChild(g);
+        restoreScroll();
+        return;
+      }
+
+      // Vue ligne : poster + bandeau des 4 types + membres (saisons/films).
       for (const c of list) {
         const row = document.createElement("div");
         row.className = "col-row";
         const poster = c.posterUrl
-          ? `<div class="col-poster" style="background-image:url('${c.posterUrl}')" onclick="openDetail('${c.id}')"></div>`
-          : `<div class="col-poster" onclick="openDetail('${c.id}')">pas de poster</div>`;
+          ? `<div class="col-poster" style="background-image:url('${c.posterUrl}')" onclick="openDetail('${c.id}','Primary')"></div>`
+          : `<div class="col-poster" onclick="openDetail('${c.id}','Primary')">pas de poster</div>`;
         const members = c.members.map(m => `
           <div class="m" onclick="openDetail('${m.id}')" title="${m.name}">
             ${m.posterUrl ? `<img loading="lazy" src="${m.posterUrl}" />` : '<div style="aspect-ratio:2/3;background:#24262e;border-radius:6px"></div>'}
@@ -263,11 +324,11 @@
         row.innerHTML = `${poster}
           <div class="col-main">
             <h3>${c.name}${c.year ? ` <span class="sub" style="font-weight:400">${c.year}</span>` : ""} <span class="sub">· ${c.members.length} ${memberLabel}(s)</span></h3>
-            <div class="col-members">${members || `<span class="sub">Aucun ${memberLabel}</span>`}</div>
+            ${imgStrip(c.images, c.id)}
+            <div class="col-members" style="margin-top:.5rem">${members || `<span class="sub">Aucun ${memberLabel}</span>`}</div>
           </div>`;
         el.appendChild(row);
       }
-      if (!list.length) el.innerHTML = '<div style="color:var(--muted)">Aucun résultat.</div>';
       restoreScroll();
     }
 
@@ -769,6 +830,7 @@
     }
 
     document.getElementById("search").oninput = (e) => { q = norm(e.target.value); render(); };
+    updateViewBtn();
     load();
   </script>
 </body>
