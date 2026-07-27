@@ -1,61 +1,53 @@
-// Snapshot : enregistre l'état courant des posters Jellyfin (films/séries) en DB
-// sans les verrouiller, pour que posterarr "connaisse" les images déjà en place.
-// But : une future passe de curation traite les items non verrouillés (= non traités
-// manuellement dans posterarr) ; les items déjà gérés/verrouillés ne sont pas touchés.
+// Snapshot : fige l'état courant des images Jellyfin (films/séries) en DB en les
+// VERROUILLANT. But : marquer/protéger tout ce qui a déjà une image (la guérison
+// les restaure), pour que seul le manquant reste à traiter.
 //
-// Limite du modèle DB : la clé durable est un id stable (tmdb/imdb/tvdb). Les
-// collections (BoxSet) et saisons n'en ont pas → elles sont ignorées ici, comme
-// elles le sont déjà par l'apply manuel par clé.
+// - Item déjà en DB (ex. auto-rempli) : on le (re)verrouille sans écraser sa source.
+// - Item inconnu : on l'enregistre (source='jellyfin', pas d'octets) et on verrouille.
+//
+// Limite : clé durable = id stable (tmdb/imdb/tvdb). Collections (BoxSet) et
+// saisons n'en ont pas → ignorées.
 
-import { listManaged, setAppliedTag, upsertManaged } from "./db.ts";
+import { listManaged, setAppliedTag, setLock, upsertManaged } from "./db.ts";
 import { getLibraryTargets } from "./jellyfin.ts";
+import { IMAGE_TYPES, type ImageType } from "./sources/types.ts";
 
 export interface SnapshotReport {
   scanned: number;
-  recorded: number;
-  skippedExisting: number;
-  skippedNoKey: number;
-  skippedNoImage: number;
+  recorded: number; // (item,type) nouveaux enregistrés
+  relocked: number; // (item,type) déjà gérés, re-verrouillés
+  skippedNoKey: number; // items sans id stable
 }
 
-export async function snapshot(imageType = "Primary"): Promise<SnapshotReport> {
-  const report: SnapshotReport = {
-    scanned: 0,
-    recorded: 0,
-    skippedExisting: 0,
-    skippedNoKey: 0,
-    skippedNoImage: 0,
-  };
+const SNAPSHOT_TYPES: ImageType[] = ["Primary", "Backdrop", "Logo", "Thumb"];
 
-  const known = new Set(
-    listManaged()
-      .filter((m) => m.image_type === imageType)
-      .map((m) => m.provider_key),
-  );
+export async function snapshot(types: ImageType[] = SNAPSHOT_TYPES): Promise<SnapshotReport> {
+  const wanted = types.filter((t) => IMAGE_TYPES.includes(t));
+  const report: SnapshotReport = { scanned: 0, recorded: 0, relocked: 0, skippedNoKey: 0 };
+
+  // (provider_key|image_type) déjà en DB.
+  const known = new Set(listManaged().map((m) => `${m.provider_key}|${m.image_type}`));
 
   const now = new Date().toISOString();
   for (const t of await getLibraryTargets()) {
     report.scanned++;
-    const key = t.providerKeys[0]; // même priorité tmdb>imdb>tvdb que providerKeys
+    const key = t.providerKeys[0];
     if (!key) {
       report.skippedNoKey++;
       continue;
     }
-    if (!t.tags[imageType]) {
-      report.skippedNoImage++;
-      continue;
+    for (const type of wanted) {
+      if (!t.tags[type]) continue; // pas d'image de ce type → rien à figer
+      if (known.has(`${key}|${type}`)) {
+        setLock(key, type, true); // déjà géré : on verrouille sans toucher la source
+        report.relocked++;
+      } else {
+        upsertManaged(key, type, "jellyfin", null, true, now, t.itemId);
+        setAppliedTag(key, type, t.tags[type]!);
+        known.add(`${key}|${type}`);
+        report.recorded++;
+      }
     }
-    if (known.has(key)) {
-      report.skippedExisting++;
-      continue;
-    }
-    // source_url null : pas d'octets stockés → la guérison ignore (locked=0 de toute
-    // façon). applied_tag = tag courant, sert de base à la détection de dérive future.
-    upsertManaged(key, imageType, "jellyfin", null, false, now, t.itemId);
-    // applied_tag n'est pas géré par upsertManaged ; on le pose juste après.
-    setAppliedTag(key, imageType, t.tags[imageType]!);
-    known.add(key);
-    report.recorded++;
   }
   return report;
 }
