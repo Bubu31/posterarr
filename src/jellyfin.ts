@@ -23,6 +23,8 @@ export interface LibraryItem {
   hasThumb: boolean;
   /** URLs par type d'image (null si absent) — pour la vue « ligne ». */
   images: Record<string, string | null>;
+  /** true si le poster (Primary) est verrouillé dans posterarr. */
+  locked: boolean;
 }
 
 async function jf<T>(path: string, params: Record<string, string> = {}): Promise<T> {
@@ -215,11 +217,21 @@ export async function getLibrary(): Promise<LibraryItem[]> {
   // Jellyfin est la source de vérité de la présence d'image : on ne surcharge
   // PAS depuis la DB managée, sinon un tag périmé (image supprimée côté Jellyfin
   // depuis) masque à tort l'item dans « Sans poster/fond/logo/vignette ».
+  // Verrou du poster (Primary), depuis la DB managée.
+  const lockedKeys = new Set<string>();
+  const lockedIds = new Set<string>();
+  for (const m of listManaged()) {
+    if (m.image_type === "Primary" && m.locked) {
+      lockedKeys.add(m.provider_key);
+      if (m.jellyfin_item_id) lockedIds.add(m.jellyfin_item_id);
+    }
+  }
   return data.Items.filter((it) => {
     if (!it.Path) return true; // pas de chemin (collections…) : on garde
     return locations.some((loc) => it.Path!.startsWith(loc));
   }).map((it) => {
     const tag = it.ImageTags?.Primary ?? null;
+    const key = providerKeyFromIds(it.ProviderIds);
     return {
       id: it.Id,
       name: it.Name,
@@ -228,6 +240,7 @@ export async function getLibrary(): Promise<LibraryItem[]> {
       primaryTag: tag,
       posterUrl: posterUrl(it.Id, tag),
       inCollection: memberIds.has(it.Id),
+      locked: lockedIds.has(it.Id) || (!!key && lockedKeys.has(key)),
       hasBackdrop: (it.BackdropImageTags?.length ?? 0) > 0,
       hasLogo: !!it.ImageTags?.Logo,
       hasThumb: !!it.ImageTags?.Thumb,

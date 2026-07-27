@@ -124,6 +124,7 @@
       Movie: "Films", Series: "Séries", BoxSet: "Collections", libraries: "Bibliothèques",
       missing: "Sans poster", missingBackdrop: "Sans fond",
       missingLogo: "Sans logo", missingThumb: "Sans vignette",
+      unlocked: "Déverrouillés",
     };
     // Filtre « manquant » -> type d'image à ouvrir dans le détail.
     const MISSING_TYPE = { missing: "Primary", missingBackdrop: "Backdrop", missingLogo: "Logo", missingThumb: "Thumb" };
@@ -210,6 +211,7 @@
         if (filter === "missingBackdrop") return !i.hasBackdrop;
         if (filter === "missingLogo") return !i.hasLogo;
         if (filter === "missingThumb") return !i.hasThumb;
+        if (filter === "unlocked") return !i.locked;
         // onglet Films : masquer les films déjà dans une collection
         return i.type === filter && !(filter === "Movie" && i.inCollection);
       });
