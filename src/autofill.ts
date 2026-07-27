@@ -1,6 +1,6 @@
-// Remplissage auto depuis Fanart : pour chaque item (film/série) dont un type
-// d'image manque côté Jellyfin, applique le PREMIER candidat Fanart de ce type.
-// Non verrouillé (source='fanart') : reste curable manuellement ensuite.
+// Remplissage auto : pour chaque item (film/série) dont un type d'image manque
+// côté Jellyfin, applique le PREMIER candidat classé (toutes sources : tmdb,
+// fanart…). Non verrouillé par défaut : reste curable manuellement ensuite.
 //
 // Fanart n'indexe que films (tmdb/imdb) et séries (tvdb) ; collections/saisons
 // sont ignorées (getLibrary ne liste pas les saisons, et fanart.supports() est
@@ -21,7 +21,7 @@ import type { ImageType } from "./sources/types.ts";
 export interface AutofillReport {
   itemsScanned: number;
   applied: Record<string, number>; // par type d'image
-  noFanart: number; // (item,type) manquants sans candidat fanart
+  noCandidate: number; // (item,type) manquants sans aucun candidat
   errors: Array<{ item: string; type: string; error: string }>;
 }
 
@@ -34,7 +34,7 @@ export async function autofill(
 ): Promise<AutofillReport> {
   if (running) throw new Error("Un remplissage auto est déjà en cours");
   running = true;
-  const report: AutofillReport = { itemsScanned: 0, applied: {}, noFanart: 0, errors: [] };
+  const report: AutofillReport = { itemsScanned: 0, applied: {}, noCandidate: 0, errors: [] };
   for (const t of types) report.applied[t] = 0;
 
   try {
@@ -75,16 +75,16 @@ export async function autofill(
           if (!misses(item, type)) continue;
           try {
             const candidates = await getCandidates(ref, type);
-            const fanart = candidates.find((c) => c.source === "fanart");
-            if (!fanart) {
-              report.noFanart++;
+            const pick = candidates[0]; // premier candidat classé (toutes sources)
+            if (!pick) {
+              report.noCandidate++;
               continue;
             }
-            await uploadImageFromUrl(providers.id, type, fanart.url);
+            await uploadImageFromUrl(providers.id, type, pick.url);
             const now = new Date().toISOString();
-            upsertManaged(key, type, "fanart", fanart.url, lock, now, providers.id);
+            upsertManaged(key, type, pick.source, pick.url, lock, now, providers.id);
             setAppliedTag(key, type, await getImageTag(providers.id, type));
-            addHistory(key, type, "apply", "fanart", fanart.url, now);
+            addHistory(key, type, "apply", pick.source, pick.url, now);
             report.applied[type]++;
           } catch (e) {
             report.errors.push({ item: item.name, type, error: String(e) });
