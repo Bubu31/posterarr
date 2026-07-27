@@ -188,10 +188,25 @@
         return i.type === filter && !(filter === "Movie" && i.inCollection);
       });
       grid.innerHTML = "";
-      for (const i of list.slice(0, 300)) {
+      gridState = { list, shown: 0 };
+      appendGridBatch();
+      restoreScroll();
+    }
+
+    // Infinite scroll : rend la grille par lots, charge la suite quand la
+    // sentinelle entre dans le viewport.
+    const GRID_BATCH = 120;
+    let gridState = { list: [], shown: 0 };
+    let gridObserver = null;
+    function appendGridBatch() {
+      const grid = document.getElementById("grid");
+      const openType = MISSING_TYPE[filter] ?? "Primary";
+      const end = Math.min(gridState.shown + GRID_BATCH, gridState.list.length);
+      const frag = document.createDocumentFragment();
+      for (let n = gridState.shown; n < end; n++) {
+        const i = gridState.list[n];
         const card = document.createElement("div");
         card.className = "card";
-        const openType = MISSING_TYPE[filter] ?? "Primary";
         const poster = i.posterUrl
           ? `<div class="poster" style="background-image:url('${i.posterUrl}')" onclick="openDetail('${i.id}','${openType}')"></div>`
           : `<div class="poster" onclick="openDetail('${i.id}','${openType}')">pas de poster</div>`;
@@ -199,15 +214,25 @@
           <div class="name" title="${i.name}">${i.name}</div>
           <div class="sub">${i.year ?? ""} ${i.posterUrl ? "" : '<span class="badge">manquant</span>'}</div>
         </div>`;
-        grid.appendChild(card);
+        frag.appendChild(card);
       }
-      if (list.length > 300) {
-        const note = document.createElement("div");
-        note.style.cssText = "grid-column:1/-1;color:var(--muted);text-align:center";
-        note.textContent = `… ${list.length - 300} de plus (pagination à venir)`;
-        grid.appendChild(note);
+      gridState.shown = end;
+      // Retire l'ancienne sentinelle avant de rajouter le lot.
+      const old = document.getElementById("grid-sentinel");
+      if (old) old.remove();
+      grid.appendChild(frag);
+      if (gridState.shown < gridState.list.length) {
+        const sentinel = document.createElement("div");
+        sentinel.id = "grid-sentinel";
+        sentinel.style.cssText = "grid-column:1/-1;height:1px";
+        grid.appendChild(sentinel);
+        if (!gridObserver) {
+          gridObserver = new IntersectionObserver((entries) => {
+            if (entries.some((e) => e.isIntersecting)) appendGridBatch();
+          }, { rootMargin: "600px" });
+        }
+        gridObserver.observe(sentinel);
       }
-      restoreScroll();
     }
 
     function restoreScroll() {
