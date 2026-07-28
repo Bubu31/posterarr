@@ -388,7 +388,8 @@
         const el = document.createElement("div");
         el.className = "cand";
         const applied = current.managed && current.managed.source_url === c.url;
-        el.innerHTML = `<img loading="lazy" src="${c.thumbUrl}" style="aspect-ratio:${ratio};object-fit:${fit}" />
+        el.innerHTML = `<img loading="lazy" src="${c.thumbUrl}" style="aspect-ratio:${ratio};object-fit:${fit}"
+            onerror="this.onerror=null;this.removeAttribute('src');this.style.background='#0d0f14';this.dataset.err=1" />
           <span class="tag">${c.source}</span>
           ${c.lang ? `<span class="tag lang">${c.lang}</span>` : ""}
           ${applied ? '<span class="tag" style="bottom:4px;top:auto;background:#1e7a3a">appliqué</span>' : ""}`;
