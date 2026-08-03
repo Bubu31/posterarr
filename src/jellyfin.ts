@@ -4,7 +4,7 @@
 import { config } from "./config.ts";
 import { listManaged } from "./db.ts";
 
-export type MediaType = "Movie" | "Series" | "BoxSet" | "Season";
+export type MediaType = "Movie" | "Series" | "BoxSet" | "Season" | "Episode";
 
 export interface LibraryItem {
   id: string;
@@ -267,8 +267,10 @@ export interface ItemProviders {
   tmdbId: string | null;
   imdbId: string | null;
   tvdbId: string | null;
-  /** Pour une saison : numéro (IndexNumber). tmdbId/tvdbId sont alors ceux de la série. */
+  /** Pour une saison/un épisode : numéro (IndexNumber). tmdbId/tvdbId sont alors ceux de la série. */
   seasonNumber: number | null;
+  /** Pour un épisode : numéro dans la saison (IndexNumber). */
+  episodeNumber: number | null;
 }
 
 function toProviders(ids: Record<string, string> | undefined) {
@@ -290,6 +292,7 @@ export async function getItemProviders(id: string): Promise<ItemProviders> {
     ProviderIds?: Record<string, string>;
     SeriesId?: string;
     IndexNumber?: number;
+    ParentIndexNumber?: number;
   }>(`/Users/${uid}/Items/${id}`);
 
   // Une saison n'a pas d'id propre : on prend ceux de la série + son numéro.
@@ -303,6 +306,22 @@ export async function getItemProviders(id: string): Promise<ItemProviders> {
       type: "Season",
       ...toProviders(series.ProviderIds),
       seasonNumber: it.IndexNumber ?? null,
+      episodeNumber: null,
+    };
+  }
+
+  // Un épisode n'a pas d'id propre non plus : ceux de la série + numéros saison/épisode.
+  if (it.Type === "Episode" && it.SeriesId) {
+    const series = await jf<{ ProviderIds?: Record<string, string> }>(
+      `/Users/${uid}/Items/${it.SeriesId}`,
+    );
+    return {
+      id: it.Id,
+      name: it.Name,
+      type: "Episode",
+      ...toProviders(series.ProviderIds),
+      seasonNumber: it.ParentIndexNumber ?? null,
+      episodeNumber: it.IndexNumber ?? null,
     };
   }
 
@@ -312,14 +331,18 @@ export async function getItemProviders(id: string): Promise<ItemProviders> {
     type: it.Type,
     ...toProviders(it.ProviderIds),
     seasonNumber: null,
+    episodeNumber: null,
   };
 }
 
 /** Clé durable pour la DB : préfère TMDB, puis IMDb, puis TVDB. Null si aucun.
- * Une saison reçoit une clé distincte de sa série (suffixe :s<numéro>). */
+ * Une saison/un épisode reçoit une clé distincte (suffixe :s<numéro>[:e<numéro>]). */
 export function providerKey(p: ItemProviders): string | null {
   const base = p.tmdbId ? `tmdb:${p.tmdbId}` : p.imdbId ? `imdb:${p.imdbId}` : p.tvdbId ? `tvdb:${p.tvdbId}` : null;
   if (!base) return null;
+  if (p.type === "Episode" && p.seasonNumber != null && p.episodeNumber != null) {
+    return `${base}:s${p.seasonNumber}:e${p.episodeNumber}`;
+  }
   if (p.type === "Season" && p.seasonNumber != null) return `${base}:s${p.seasonNumber}`;
   return base;
 }
@@ -563,6 +586,44 @@ export async function getSeasonsForZip(
     { parentId: seriesId, IncludeItemTypes: "Season" },
   );
   return data.Items.map((s) => ({ id: s.Id, indexNumber: s.IndexNumber ?? null }));
+}
+
+export interface EpisodeItem {
+  id: string;
+  name: string;
+  indexNumber: number | null;
+  posterUrl: string | null;
+  locked: boolean;
+}
+
+/** Épisodes d'une saison, avec l'état de leur image (still) actuelle. */
+export async function getEpisodes(seasonId: string): Promise<EpisodeItem[]> {
+  const uid = await getUserId();
+  const data = await jf<{ Items: Array<JfMember & { IndexNumber?: number }> }>(
+    `/Users/${uid}/Items`,
+    {
+      parentId: seasonId,
+      IncludeItemTypes: "Episode",
+      EnableImageTypes: "Primary",
+      SortBy: "IndexNumber",
+      SortOrder: "Ascending",
+    },
+  );
+  const maps = buildAppliedMaps();
+  const lockedIds = new Set<string>();
+  for (const m of listManaged()) {
+    if (m.image_type === "Primary" && m.locked && m.jellyfin_item_id) lockedIds.add(m.jellyfin_item_id);
+  }
+  return data.Items.map((e) => {
+    const tag = maps.byItemId.get(e.Id) ?? e.ImageTags?.Primary ?? null;
+    return {
+      id: e.Id,
+      name: e.Name,
+      indexNumber: e.IndexNumber ?? null,
+      posterUrl: posterUrl(e.Id, tag),
+      locked: lockedIds.has(e.Id),
+    };
+  });
 }
 
 /** Films membres d'une collection (BoxSet). `applied` = fallback tag managé par item id. */

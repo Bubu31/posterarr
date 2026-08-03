@@ -14,6 +14,7 @@ interface TmdbImages {
   posters?: TmdbImage[];
   backdrops?: TmdbImage[];
   logos?: TmdbImage[];
+  stills?: TmdbImage[];
 }
 
 // Type Jellyfin -> champ de la réponse TMDB /images. Thumb/Banner : TMDB n'en a pas.
@@ -78,10 +79,35 @@ export const tmdbSource: ImageSource = {
   supports(ref: MediaRef): boolean {
     if (!config.tmdbApiKey || ref.tmdbId === null) return false;
     if (ref.type === "Season") return ref.seasonNumber != null; // via série + numéro
+    if (ref.type === "Episode") return ref.seasonNumber != null && ref.episodeNumber != null;
     return ref.type === "Movie" || ref.type === "Series" || ref.type === "BoxSet";
   },
 
   async getImages(ref: MediaRef, imageType: ImageType): Promise<ImageCandidate[]> {
+    // Épisode : endpoint dédié /tv/{sérieTmdb}/season/{n}/episode/{m}/images (stills uniquement).
+    if (ref.type === "Episode") {
+      if (imageType !== "Primary") return [];
+      const url =
+        `https://api.themoviedb.org/3/tv/${ref.tmdbId}/season/${ref.seasonNumber}` +
+        `/episode/${ref.episodeNumber}/images?api_key=${config.tmdbApiKey}`;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return [];
+        const data = (await res.json()) as TmdbImages;
+        return (data.stills ?? []).map((p) => ({
+          source: "tmdb",
+          url: `${IMG}/original${p.file_path}`,
+          thumbUrl: `${IMG}/w300${p.file_path}`,
+          lang: p.iso_639_1,
+          width: p.width,
+          height: p.height,
+          popularity: p.vote_average,
+        }));
+      } catch {
+        return [];
+      }
+    }
+
     const field = TMDB_FIELD[imageType];
     if (!field) return []; // Thumb/Banner : pas de source TMDB
     // Saison : endpoint dédié /tv/{sérieTmdb}/season/{n}/images (posters uniquement)

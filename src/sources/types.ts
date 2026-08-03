@@ -14,8 +14,10 @@ export interface MediaRef {
   tmdbId: string | null;
   imdbId: string | null;
   tvdbId: string | null;
-  /** Pour une saison : numéro (tmdbId/tvdbId sont ceux de la série parente). */
+  /** Pour une saison/un épisode : numéro (tmdbId/tvdbId sont ceux de la série parente). */
   seasonNumber?: number | null;
+  /** Pour un épisode : numéro dans la saison. */
+  episodeNumber?: number | null;
 }
 
 export interface ImageCandidate {

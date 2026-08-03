@@ -6,6 +6,7 @@ import {
   getSeasonsForZip,
   getSeries,
   getSport,
+  getEpisodes,
   getImageTag,
   getItemProviders,
   getLibrary,
@@ -67,6 +68,12 @@ app.get("/api/sport", async (c) => {
   return c.json({ count: collections.length, collections });
 });
 
+// Épisodes d'une saison (gestion du visuel par épisode).
+app.get("/api/seasons/:id/episodes", async (c) => {
+  const episodes = await getEpisodes(c.req.param("id"));
+  return c.json({ count: episodes.length, episodes });
+});
+
 // Candidats de posters pour un item : résout ses ProviderIds puis interroge les sources.
 app.get("/api/items/:id/candidates", async (c) => {
   const imageType = parseImageType(c.req.query("imageType"));
@@ -77,6 +84,7 @@ app.get("/api/items/:id/candidates", async (c) => {
     imdbId: providers.imdbId,
     tvdbId: providers.tvdbId,
     seasonNumber: providers.seasonNumber,
+    episodeNumber: providers.episodeNumber,
   };
   const candidates = await getCandidates(ref, imageType);
   const key = providerKey(providers);
