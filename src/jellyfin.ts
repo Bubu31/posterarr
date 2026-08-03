@@ -335,11 +335,22 @@ export async function getItemProviders(id: string): Promise<ItemProviders> {
   };
 }
 
-/** Clé durable pour la DB : préfère TMDB, puis IMDb, puis TVDB. Null si aucun.
- * Une saison/un épisode reçoit une clé distincte (suffixe :s<numéro>[:e<numéro>]). */
+/**
+ * Clé durable pour la DB : préfère TMDB, puis IMDb, puis TVDB. Sans aucun des
+ * trois (ex. bibliothèque Sport non matchée), repli sur l'id Jellyfin brut —
+ * gérable mais moins robuste : si l'item est recréé (reclone/rebuild), l'id
+ * change et l'ancienne clé devient orpheline (pas de re-résolution possible,
+ * contrairement à un id TMDB/IMDb/TVDB qui, lui, ne bouge jamais).
+ * Une saison/un épisode reçoit une clé distincte (suffixe :s<numéro>[:e<numéro>]).
+ */
 export function providerKey(p: ItemProviders): string | null {
-  const base = p.tmdbId ? `tmdb:${p.tmdbId}` : p.imdbId ? `imdb:${p.imdbId}` : p.tvdbId ? `tvdb:${p.tvdbId}` : null;
-  if (!base) return null;
+  const base = p.tmdbId
+    ? `tmdb:${p.tmdbId}`
+    : p.imdbId
+      ? `imdb:${p.imdbId}`
+      : p.tvdbId
+        ? `tvdb:${p.tvdbId}`
+        : `jf:${p.id}`;
   if (p.type === "Episode" && p.seasonNumber != null && p.episodeNumber != null) {
     return `${base}:s${p.seasonNumber}:e${p.episodeNumber}`;
   }
