@@ -79,6 +79,22 @@
     </div>
   </div>
 
+  <div class="overlay" id="crop-overlay">
+    <div class="panel" style="max-width:560px">
+      <button class="close" onclick="cropCancel()">Fermer</button>
+      <h2>Ratio incompatible — recadrer ?</h2>
+      <div class="sub" id="crop-sub"></div>
+      <div style="margin-top:.8rem;display:inline-block;border-radius:8px;overflow:hidden;background:#0d0f14;touch-action:none;cursor:grab">
+        <canvas id="crop-canvas"></canvas>
+      </div>
+      <div class="sub" style="margin-top:.4rem">🖱️ Molette pour zoomer · glisser pour déplacer</div>
+      <div style="margin-top:.8rem;display:flex;gap:.6rem;flex-wrap:wrap">
+        <button class="close" style="float:none" onclick="cropSkip()">Appliquer sans recadrer</button>
+        <button class="close" style="float:none;background:var(--accent);color:#fff" onclick="cropCommit()">Valider le recadrage</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="cover-overlay">
     <div class="panel" style="max-width:900px">
       <button class="close" onclick="closeCover()">Fermer</button>
@@ -430,14 +446,38 @@
     }
 
     async function apply(c) {
+      let img = null;
+      try { img = await loadImg(c.url, true); } catch { img = null; }
+      if (img && ratioMismatched(img.naturalWidth, img.naturalHeight, current.imageType)) {
+        openCropTool(img, current.imageType, {
+          onCrop: (blob) => applyBlob(blob),
+          onSkip: () => applyDirect(c.url, c.source),
+        });
+        return;
+      }
+      await applyDirect(c.url, c.source);
+    }
+
+    async function applyDirect(url, source) {
       document.getElementById("d-lock").innerHTML = '<span class="sub">Application…</span>';
       const r = await fetch(`/api/items/${current.id}/apply`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: c.url, source: c.source, imageType: current.imageType }),
+        body: JSON.stringify({ url, source, imageType: current.imageType }),
       });
       const d = await r.json();
       if (d.ok) { current.managed = d.managed; openDetail(current.id, current.imageType); load(); }
       else alert("Échec : " + (d.error || "inconnu"));
+    }
+
+    async function applyBlob(blob) {
+      document.getElementById("d-lock").innerHTML = '<span class="sub">Application du recadrage…</span>';
+      const fd = new FormData();
+      fd.append("file", blob, "crop.jpg");
+      fd.append("imageType", current.imageType);
+      const r = await fetch(`/api/items/${current.id}/apply-file`, { method: "POST", body: fd });
+      const d = await r.json();
+      if (d.ok) { current.managed = d.managed; openDetail(current.id, current.imageType); load(); }
+      else alert("Échec upload : " + (d.error || "inconnu"));
     }
 
     async function toggleLock() {
@@ -628,8 +668,21 @@
 
     async function uploadCustom(file) {
       if (!file || !current) return;
+      let img = null;
+      try { img = await loadImg(URL.createObjectURL(file), false); } catch { img = null; }
+      if (img && ratioMismatched(img.naturalWidth, img.naturalHeight, current.imageType)) {
+        openCropTool(img, current.imageType, {
+          onCrop: (blob) => uploadCustomBlob(blob),
+          onSkip: () => uploadCustomBlob(file),
+        });
+        return;
+      }
+      await uploadCustomBlob(file);
+    }
+
+    async function uploadCustomBlob(fileOrBlob) {
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", fileOrBlob, "custom.jpg");
       fd.append("imageType", current.imageType);
       document.getElementById("d-lock").innerHTML = '<span class="sub">Upload custom…</span>';
       const r = await fetch(`/api/items/${current.id}/apply-file`, { method: "POST", body: fd });
@@ -859,6 +912,125 @@
         setTimeout(() => { closeCover(); load(); }, 500);
       } catch (e) { msg.textContent = "Erreur : " + e; }
     }
+
+    // --- Recadrage (ratio incompatible avec le type d'image cible) ---
+    const CROP_TOLERANCE = 0.03; // écart de ratio toléré avant de proposer un recadrage
+    function ratioMismatched(w, h, imageType) {
+      if (!w || !h) return false;
+      const [tw, th] = TYPE_DIM[imageType] || TYPE_DIM.Primary;
+      return Math.abs(w / h - tw / th) / (tw / th) > CROP_TOLERANCE;
+    }
+
+    let cropState = null; // { img, targetW, targetH, dispW, dispH, scale, minScale, maxScale, offX, offY, drawW, drawH, onCrop, onSkip }
+
+    function cropComputeSize() {
+      const s = cropState;
+      s.drawW = s.img.naturalWidth * s.scale;
+      s.drawH = s.img.naturalHeight * s.scale;
+    }
+    // Sous "cover" (drawW/drawH < cadre) : l'image entre en entier sur cet axe,
+    // on la centre (pas de recadrage possible dessus). Au-dessus : clamp normal
+    // pour ne jamais laisser de vide.
+    function cropClamp() {
+      const s = cropState;
+      s.offX = s.drawW <= s.dispW ? (s.dispW - s.drawW) / 2 : Math.min(0, Math.max(s.dispW - s.drawW, s.offX));
+      s.offY = s.drawH <= s.dispH ? (s.dispH - s.drawH) / 2 : Math.min(0, Math.max(s.dispH - s.drawH, s.offY));
+    }
+    function drawCrop() {
+      const s = cropState;
+      const ctx = document.getElementById("crop-canvas").getContext("2d");
+      ctx.clearRect(0, 0, s.dispW, s.dispH);
+      ctx.drawImage(s.img, s.offX, s.offY, s.drawW, s.drawH);
+    }
+
+    function openCropTool(img, imageType, handlers) {
+      const [tw, th] = TYPE_DIM[imageType] || TYPE_DIM.Primary;
+      const dispMax = 460;
+      const k = dispMax / Math.max(tw, th);
+      const dispW = Math.round(tw * k), dispH = Math.round(th * k);
+      const cv = document.getElementById("crop-canvas");
+      cv.width = dispW; cv.height = dispH;
+      // cover = cadre rempli (défaut, comme avant) ; contain = image entière visible
+      // (zoom arrière max, avec du vide sur les bords) ; jusqu'à 4x le cover en zoom avant.
+      const coverScale = Math.max(dispW / img.naturalWidth, dispH / img.naturalHeight);
+      const containScale = Math.min(dispW / img.naturalWidth, dispH / img.naturalHeight);
+      cropState = {
+        img, targetW: tw, targetH: th, dispW, dispH,
+        scale: coverScale, minScale: containScale, maxScale: coverScale * 4,
+        offX: 0, offY: 0, drawW: 0, drawH: 0,
+        onCrop: handlers.onCrop, onSkip: handlers.onSkip,
+      };
+      cropComputeSize();
+      cropClamp();
+      document.getElementById("crop-sub").textContent =
+        `Image ${img.naturalWidth}×${img.naturalHeight} — cible ${tw}×${th} (${imageType})`;
+      document.getElementById("crop-overlay").classList.add("open");
+      drawCrop();
+    }
+
+    // Zoom molette centré sur le curseur : le point de l'image sous le curseur
+    // reste fixe pendant le zoom (comportement standard type Figma/Maps).
+    function cropZoomAt(px, py, factor) {
+      const s = cropState;
+      const newScale = Math.max(s.minScale, Math.min(s.maxScale, s.scale * factor));
+      if (newScale === s.scale) return;
+      const ix = (px - s.offX) / s.drawW, iy = (py - s.offY) / s.drawH;
+      s.scale = newScale;
+      cropComputeSize();
+      s.offX = px - ix * s.drawW;
+      s.offY = py - iy * s.drawH;
+      cropClamp();
+      drawCrop();
+    }
+
+    async function cropCommit() {
+      const s = cropState;
+      const out = document.createElement("canvas");
+      out.width = s.targetW; out.height = s.targetH;
+      const k = s.targetW / s.dispW;
+      out.getContext("2d").drawImage(s.img, s.offX * k, s.offY * k, s.drawW * k, s.drawH * k);
+      const blob = await new Promise(r => out.toBlob(r, "image/jpeg", 0.92));
+      const onCrop = s.onCrop;
+      cropState = null;
+      document.getElementById("crop-overlay").classList.remove("open");
+      if (blob) onCrop(blob); else alert("Erreur canvas (image protégée ?)");
+    }
+    function cropSkip() {
+      const s = cropState;
+      cropState = null;
+      document.getElementById("crop-overlay").classList.remove("open");
+      s.onSkip();
+    }
+    function cropCancel() {
+      cropState = null;
+      document.getElementById("crop-overlay").classList.remove("open");
+    }
+
+    (function wireCropDrag() {
+      const cv = document.getElementById("crop-canvas");
+      let dragging = false, lastX = 0, lastY = 0;
+      cv.addEventListener("pointerdown", (e) => {
+        if (!cropState) return;
+        dragging = true; lastX = e.clientX; lastY = e.clientY;
+        cv.setPointerCapture(e.pointerId);
+      });
+      cv.addEventListener("pointermove", (e) => {
+        if (!dragging || !cropState) return;
+        const s = cropState;
+        s.offX += e.clientX - lastX; s.offY += e.clientY - lastY;
+        lastX = e.clientX; lastY = e.clientY;
+        cropClamp(); drawCrop();
+      });
+      cv.addEventListener("pointerup", () => dragging = false);
+      cv.addEventListener("pointercancel", () => dragging = false);
+      cv.addEventListener("wheel", (e) => {
+        if (!cropState) return;
+        e.preventDefault();
+        const rect = cv.getBoundingClientRect();
+        const factor = Math.pow(1.0015, -e.deltaY); // molette douce, proportionnelle au deltaY
+        cropZoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
+      }, { passive: false });
+    })();
 
     document.getElementById("search").oninput = (e) => { q = norm(e.target.value); render(); };
     updateViewBtn();
