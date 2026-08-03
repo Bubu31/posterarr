@@ -17,6 +17,10 @@ export interface HealReport {
   healed: Array<{ providerKey: string; name: string; reason: "missing" | "changed" }>;
   notFound: string[]; // provider_keys sans item Jellyfin correspondant (média retiré ?)
   errors: Array<{ providerKey: string; error: string }>;
+  // Verrouillé + image disparue/changée, mais rien à ré-appliquer (ex. Snapshot :
+  // on a figé "il y avait une image" sans en garder de copie). Reste cassé tant
+  // qu'un poster n'est pas ré-appliqué manuellement (candidat ou upload custom).
+  skippedNoSource: Array<{ providerKey: string; name: string; reason: "missing" | "changed" }>;
 }
 
 let running = false;
@@ -24,7 +28,7 @@ let running = false;
 export async function heal(): Promise<HealReport> {
   if (running) throw new Error("Une guérison est déjà en cours");
   running = true;
-  const report: HealReport = { checked: 0, healed: [], notFound: [], errors: [] };
+  const report: HealReport = { checked: 0, healed: [], notFound: [], errors: [], skippedNoSource: [] };
   try {
     const locked = listLocked();
     // Index provider_key -> cible + itemId -> cible (fallback si le bulk a perdu
@@ -53,7 +57,10 @@ export async function heal(): Promise<HealReport> {
             ? "changed"
             : null;
       if (!drifted) continue;
-      if (!m.source_url) continue; // aucune source à ré-appliquer
+      if (!m.source_url) {
+        report.skippedNoSource.push({ providerKey: m.provider_key, name: target.name, reason: drifted });
+        continue; // aucune source à ré-appliquer (ex. Snapshot, jamais eu de copie)
+      }
 
       try {
         // Marqueur "custom/…" = image stockée localement (upload custom OU zip PosterDB) ;

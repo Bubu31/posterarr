@@ -463,6 +463,10 @@
           `${d.checked} item(s) verrouillé(s) vérifié(s)`,
           `${d.healed.length} poster(s) restauré(s)` + (d.healed.length ? " :\n" + d.healed.map(h => `  · ${h.name} (${h.reason === "missing" ? "disparu" : "remplacé"})`).join("\n") : ""),
           d.notFound.length ? `${d.notFound.length} introuvable(s) dans Jellyfin` : "",
+          d.skippedNoSource.length
+            ? `${d.skippedNoSource.length} cassé(s) sans source à réappliquer (verrouillés via Snapshot) :\n` +
+              d.skippedNoSource.map(s => `  · ${s.name} (${s.reason === "missing" ? "disparu" : "remplacé"})`).join("\n")
+            : "",
           d.errors.length ? `${d.errors.length} erreur(s)` : "",
         ].filter(Boolean);
         alert("Guérison terminée\n\n" + lines.join("\n"));
