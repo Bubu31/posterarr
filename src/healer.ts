@@ -17,10 +17,10 @@ export interface HealReport {
   healed: Array<{ providerKey: string; name: string; reason: "missing" | "changed" }>;
   notFound: string[]; // provider_keys sans item Jellyfin correspondant (média retiré ?)
   errors: Array<{ providerKey: string; error: string }>;
-  // Verrouillé + image disparue/changée, mais rien à ré-appliquer (ex. Snapshot :
-  // on a figé "il y avait une image" sans en garder de copie). Reste cassé tant
+  // Verrouillé + image disparue, mais rien à ré-appliquer (ex. Snapshot : on a
+  // figé "il y avait une image" sans en garder de copie). Reste cassé tant
   // qu'un poster n'est pas ré-appliqué manuellement (candidat ou upload custom).
-  skippedNoSource: Array<{ providerKey: string; name: string; reason: "missing" | "changed" }>;
+  skippedNoSource: Array<{ providerKey: string; name: string }>;
 }
 
 let running = false;
@@ -58,7 +58,16 @@ export async function heal(): Promise<HealReport> {
             : null;
       if (!drifted) continue;
       if (!m.source_url) {
-        report.skippedNoSource.push({ providerKey: m.provider_key, name: target.name, reason: drifted });
+        if (drifted === "missing") {
+          report.skippedNoSource.push({ providerKey: m.provider_key, name: target.name });
+        } else {
+          // "changed" sans source de référence : Jellyfin fait tourner ses tags
+          // d'image (refresh métadonnées) même quand le visuel ne change pas.
+          // Sans copie à comparer on ne peut pas savoir si c'est un vrai
+          // remplacement — on resynchronise juste la référence pour ne pas
+          // re-signaler ce faux positif à chaque guérison.
+          setAppliedTag(m.provider_key, m.image_type, currentTag);
+        }
         continue; // aucune source à ré-appliquer (ex. Snapshot, jamais eu de copie)
       }
 
