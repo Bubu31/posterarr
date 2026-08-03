@@ -121,7 +121,7 @@
 
   <script>
     const TYPES = {
-      Movie: "Films", Series: "Séries", BoxSet: "Collections", libraries: "Bibliothèques",
+      Movie: "Films", Series: "Séries", Sport: "Sport", BoxSet: "Collections", libraries: "Bibliothèques",
       missing: "Sans poster", missingBackdrop: "Sans fond",
       missingLogo: "Sans logo", missingThumb: "Sans vignette",
       unlocked: "Déverrouillés",
@@ -189,10 +189,11 @@
       const grid = document.getElementById("grid");
       const collist = document.getElementById("collist");
       // Vue liste dédiée pour les collections
-      if (filter === "BoxSet" || filter === "Series") {
+      if (filter === "BoxSet" || filter === "Series" || filter === "Sport") {
         grid.style.display = "none";
         collist.style.display = "block";
         if (filter === "BoxSet") renderGroups("/api/collections", "film");
+        else if (filter === "Sport") renderGroups("/api/sport", "saison");
         else renderGroups("/api/series", "saison");
         return;
       }

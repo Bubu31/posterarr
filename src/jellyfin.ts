@@ -107,6 +107,12 @@ async function getLibraryLocations(): Promise<string[]> {
   return vfs.flatMap((v) => v.Locations ?? []);
 }
 
+/** Emplacements d'une bibliothèque nommée (ex. "Sport"), vide si absente. */
+async function getLibraryLocationsByName(name: string): Promise<string[]> {
+  const vfs = await jf<Array<{ Name: string; Locations?: string[] }>>("/Library/VirtualFolders");
+  return vfs.find((v) => v.Name === name)?.Locations ?? [];
+}
+
 export interface LibraryImage {
   tag: string | null;
   url: string | null;
@@ -470,8 +476,12 @@ interface JfMember {
  * SeriesId, donc on récupère toutes les saisons d'un coup et on les regroupe,
  * au lieu d'une requête par série).
  */
-export async function getSeries(): Promise<CollectionItem[]> {
-  const [seriesData, locations, seasonsData] = await Promise.all([
+/**
+ * Cœur commun séries+saisons. `pathOk` décide, par item, s'il entre dans le
+ * résultat (permet d'inclure/exclure une bibliothèque précise, ex. Sport).
+ */
+async function fetchSeriesList(pathOk: (path?: string) => boolean): Promise<CollectionItem[]> {
+  const [seriesData, seasonsData] = await Promise.all([
     jf<{ Items: Array<JfMember & { Path?: string }> }>("/Items", {
       Recursive: "true",
       IncludeItemTypes: "Series",
@@ -481,7 +491,6 @@ export async function getSeries(): Promise<CollectionItem[]> {
       EnableImageTypes: "Primary,Backdrop,Logo,Thumb",
       CollapseBoxSetItems: "false",
     }),
-    getLibraryLocations(),
     jf<{ Items: Array<JfMember & { SeriesId: string; IndexNumber?: number }> }>("/Items", {
       Recursive: "true",
       IncludeItemTypes: "Season",
@@ -509,9 +518,7 @@ export async function getSeries(): Promise<CollectionItem[]> {
     bySeries.set(s.SeriesId, arr);
   }
 
-  return seriesData.Items.filter(
-    (p) => !p.Path || locations.some((loc) => p.Path!.startsWith(loc)),
-  ).map((p) => ({
+  return seriesData.Items.filter((p) => pathOk(p.Path)).map((p) => ({
     id: p.Id,
     name: p.Name,
     year: p.ProductionYear ?? null,
@@ -524,6 +531,26 @@ export async function getSeries(): Promise<CollectionItem[]> {
     },
     members: bySeries.get(p.Id) ?? [],
   }));
+}
+
+/** Séries (hors bibliothèque Sport, qui a son propre onglet). */
+export async function getSeries(): Promise<CollectionItem[]> {
+  const [locations, sportLocations] = await Promise.all([
+    getLibraryLocations(),
+    getLibraryLocationsByName("Sport"),
+  ]);
+  return fetchSeriesList(
+    (path) =>
+      (!path || locations.some((loc) => path.startsWith(loc))) &&
+      !sportLocations.some((loc) => path?.startsWith(loc)),
+  );
+}
+
+/** Séries de la bibliothèque Sport uniquement (même format que getSeries). */
+export async function getSport(): Promise<CollectionItem[]> {
+  const sportLocations = await getLibraryLocationsByName("Sport");
+  if (!sportLocations.length) return [];
+  return fetchSeriesList((path) => !!path && sportLocations.some((loc) => path.startsWith(loc)));
 }
 
 /** Saisons d'une série avec leur numéro (IndexNumber), pour l'import de set zip. */

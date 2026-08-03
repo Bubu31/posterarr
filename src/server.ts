@@ -5,6 +5,7 @@ import {
   getGroups,
   getSeasonsForZip,
   getSeries,
+  getSport,
   getImageTag,
   getItemProviders,
   getLibrary,
@@ -57,6 +58,12 @@ app.get("/api/collections", async (c) => {
 // Séries avec leurs saisons (vue liste dédiée, même format que les collections).
 app.get("/api/series", async (c) => {
   const collections = await getSeries();
+  return c.json({ count: collections.length, collections });
+});
+
+// Sport (bibliothèque Jellyfin dédiée, organisée en séries+saisons).
+app.get("/api/sport", async (c) => {
+  const collections = await getSport();
   return c.json({ count: collections.length, collections });
 });
 
